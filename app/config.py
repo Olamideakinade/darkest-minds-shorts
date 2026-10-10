@@ -75,8 +75,22 @@ class Config:
     research_cache_ttl_hours: int = int(os.getenv("RESEARCH_CACHE_TTL_HOURS", "6"))
     research_lookback_days: int = int(os.getenv("RESEARCH_LOOKBACK_DAYS", "30"))
 
+    # Autonomous Channel Operator Settings
+    autonomous_research_interval_hours: int = int(os.getenv("AUTONOMOUS_RESEARCH_INTERVAL_HOURS", "24"))
+    autonomous_production_interval_hours: int = int(os.getenv("AUTONOMOUS_PRODUCTION_INTERVAL_HOURS", "24"))
+    autonomous_paused: bool = os.getenv("AUTONOMOUS_PAUSED", "false").lower() in ("true", "1", "yes")
+    max_daily_uploads: int = int(os.getenv("MAX_DAILY_UPLOADS", "1"))
 
     def __post_init__(self) -> None:
+        # Normalize and align publishing mode aliases
+        mode = self.youtube_publish_mode.lower()
+        if mode in ("autonomous", "autonomous_public"):
+            self.youtube_publish_mode = "autonomous_public"
+        elif mode in ("review-required", "private_test", "review_required"):
+            self.youtube_publish_mode = "private_test"
+        else:
+            self.youtube_publish_mode = "disabled"
+
         # Parse telegram allowed user IDs
         raw_ids = os.getenv("TELEGRAM_ALLOWED_USER_IDS", "")
         if raw_ids:
@@ -95,7 +109,8 @@ class Config:
         """Validate configuration settings and return any warning/error messages."""
         warnings: List[str] = []
 
-        if self.youtube_publish_mode not in ("disabled", "review-required", "autonomous"):
+        valid_modes = ("disabled", "private_test", "autonomous_public")
+        if self.youtube_publish_mode not in valid_modes:
             warnings.append(
                 f"Invalid YOUTUBE_PUBLISH_MODE '{self.youtube_publish_mode}'. Defaulting to 'disabled'."
             )
@@ -114,6 +129,7 @@ class Config:
             warnings.append("Telegram Bot Token not configured. Telegram control room is disabled.")
 
         return warnings
+
 
     def to_safe_dict(self) -> Dict[str, Any]:
         """Return configuration dictionary with all secret values redacted."""
@@ -146,7 +162,10 @@ class Config:
             "research_max_api_requests": self.research_max_api_requests,
             "research_cache_ttl_hours": self.research_cache_ttl_hours,
             "research_lookback_days": self.research_lookback_days,
+            "autonomous_paused": self.autonomous_paused,
+            "max_daily_uploads": self.max_daily_uploads,
         }
+
 
 
 

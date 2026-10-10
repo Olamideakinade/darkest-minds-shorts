@@ -28,6 +28,11 @@ from app.database.models import (
     OwnerChannelStatus,
     ResearchedVideo,
     CompetitorChannel,
+    DecisionLog,
+    ContentStrategy,
+    StrategyWeight,
+    SchedulerState,
+    FactualClaim,
     utc_now_iso,
 )
 from app.utils.logger import logger
@@ -739,6 +744,286 @@ class Database:
         """Disconnect owner channel in local state without deleting any remote YouTube data."""
         with self.connection() as conn:
             conn.execute("DELETE FROM owner_channel WHERE id = 1")
+
+    # --------------------------------------------------------------------------
+    # Autonomous Operations: Decisions, Strategies, Scheduler & Claims
+    # --------------------------------------------------------------------------
+
+    def log_decision(self, decision: DecisionLog) -> None:
+        """Record an autonomous decision to the durable audit trail."""
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO decision_logs (id, decision_type, input_summary, chosen_action, rationale, outcome, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    decision.id,
+                    decision.decision_type,
+                    decision.input_summary,
+                    decision.chosen_action,
+                    decision.rationale,
+                    decision.outcome,
+                    decision.created_at,
+                ),
+            )
+        self.record_event("DECISION_LOGGED", f"Decision [{decision.decision_type}]: {decision.chosen_action}", {
+            "decision_id": decision.id,
+            "decision_type": decision.decision_type,
+        })
+
+    def get_decision_logs(self, limit: int = 50, decision_type: Optional[str] = None) -> List[DecisionLog]:
+        """Retrieve recent autonomous decision logs."""
+        with self.connection() as conn:
+            if decision_type:
+                rows = conn.execute(
+                    "SELECT * FROM decision_logs WHERE decision_type = ? ORDER BY created_at DESC LIMIT ?",
+                    (decision_type, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM decision_logs ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+        return [
+            DecisionLog(
+                id=r["id"],
+                decision_type=r["decision_type"],
+                input_summary=r["input_summary"],
+                chosen_action=r["chosen_action"],
+                rationale=r["rationale"],
+                outcome=r["outcome"] or "",
+                created_at=r["created_at"],
+            )
+            for r in rows
+        ]
+
+    def record_content_strategy(self, strategy: ContentStrategy) -> None:
+        """Store the strategy metadata for a produced Short."""
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO content_strategies (id, job_id, script_id, category, hook_style,
+                                                          target_duration_sec, words_per_minute, narrative_archetype,
+                                                          experiment_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    strategy.id,
+                    strategy.job_id,
+                    strategy.script_id,
+                    strategy.category,
+                    strategy.hook_style,
+                    strategy.target_duration_sec,
+                    strategy.words_per_minute,
+                    strategy.narrative_archetype,
+                    strategy.experiment_id,
+                    strategy.created_at,
+                ),
+            )
+
+    def get_content_strategy_for_job(self, job_id: str) -> Optional[ContentStrategy]:
+        """Retrieve the strategy metadata associated with a specific job."""
+        with self.connection() as conn:
+            r = conn.execute("SELECT * FROM content_strategies WHERE job_id = ?", (job_id,)).fetchone()
+            if not r:
+                return None
+            return ContentStrategy(
+                id=r["id"],
+                job_id=r["job_id"],
+                script_id=r["script_id"],
+                category=r["category"],
+                hook_style=r["hook_style"],
+                target_duration_sec=r["target_duration_sec"],
+                words_per_minute=r["words_per_minute"],
+                narrative_archetype=r["narrative_archetype"],
+                experiment_id=r["experiment_id"],
+                created_at=r["created_at"],
+            )
+
+    def list_content_strategies(self, limit: int = 50) -> List[ContentStrategy]:
+        """List recent content strategies across jobs."""
+        with self.connection() as conn:
+            rows = conn.execute("SELECT * FROM content_strategies ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+        return [
+            ContentStrategy(
+                id=r["id"],
+                job_id=r["job_id"],
+                script_id=r["script_id"],
+                category=r["category"],
+                hook_style=r["hook_style"],
+                target_duration_sec=r["target_duration_sec"],
+                words_per_minute=r["words_per_minute"],
+                narrative_archetype=r["narrative_archetype"],
+                experiment_id=r["experiment_id"],
+                created_at=r["created_at"],
+            )
+            for r in rows
+        ]
+
+    def get_strategy_weights(self) -> Dict[str, StrategyWeight]:
+        """Get all active dynamic strategy weights."""
+        with self.connection() as conn:
+            rows = conn.execute("SELECT * FROM active_strategy_weights").fetchall()
+        return {
+            r["strategy_key"]: StrategyWeight(
+                strategy_key=r["strategy_key"],
+                weight=r["weight"],
+                performance_multiplier=r["performance_multiplier"],
+                sample_count=r["sample_count"],
+                last_updated=r["last_updated"],
+            )
+            for r in rows
+        }
+
+    def update_strategy_weight(self, key: str, weight: float, performance_multiplier: float, sample_count: int) -> None:
+        """Upsert dynamic strategy weight based on measured video performance."""
+        now_iso = utc_now_iso()
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO active_strategy_weights (strategy_key, weight, performance_multiplier, sample_count, last_updated)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(strategy_key) DO UPDATE SET
+                    weight = excluded.weight,
+                    performance_multiplier = excluded.performance_multiplier,
+                    sample_count = excluded.sample_count,
+                    last_updated = excluded.last_updated
+                """,
+                (key, weight, performance_multiplier, sample_count, now_iso),
+            )
+
+    def get_scheduler_state(self) -> SchedulerState:
+        """Fetch persistent scheduler state."""
+        with self.connection() as conn:
+            r = conn.execute("SELECT * FROM scheduler_state WHERE id = 1").fetchone()
+            if not r:
+                return SchedulerState()
+            return SchedulerState(
+                id=r["id"],
+                last_research_at=r["last_research_at"],
+                last_production_at=r["last_production_at"],
+                last_analytics_at=r["last_analytics_at"],
+                consecutive_failures=r["consecutive_failures"],
+                is_paused=bool(r["is_paused"]),
+                pause_reason=r["pause_reason"],
+                updated_at=r["updated_at"],
+            )
+
+    def update_scheduler_state(self, state: SchedulerState) -> None:
+        """Upsert persistent scheduler state."""
+        now_iso = utc_now_iso()
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO scheduler_state (id, last_research_at, last_production_at, last_analytics_at,
+                                            consecutive_failures, is_paused, pause_reason, updated_at)
+                VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    last_research_at = excluded.last_research_at,
+                    last_production_at = excluded.last_production_at,
+                    last_analytics_at = excluded.last_analytics_at,
+                    consecutive_failures = excluded.consecutive_failures,
+                    is_paused = excluded.is_paused,
+                    pause_reason = excluded.pause_reason,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    state.last_research_at,
+                    state.last_production_at,
+                    state.last_analytics_at,
+                    state.consecutive_failures,
+                    1 if state.is_paused else 0,
+                    state.pause_reason,
+                    now_iso,
+                ),
+            )
+
+    def get_published_videos(self, limit: int = 50) -> List[PublishedVideo]:
+        """Fetch list of recorded published videos."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM published_videos ORDER BY published_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [
+            PublishedVideo(
+                video_id=r["video_id"],
+                job_id=r["job_id"],
+                youtube_id=r["youtube_id"],
+                title=r["title"],
+                description=r["description"] or "",
+                privacy_status=r["privacy_status"] or "private",
+                youtube_url=r["youtube_url"] or "",
+                published_at=r["published_at"],
+            )
+            for r in rows
+        ]
+
+    def get_published_video_by_job(self, job_id: str) -> Optional[PublishedVideo]:
+        """Find published video record by job ID."""
+        with self.connection() as conn:
+            r = conn.execute("SELECT * FROM published_videos WHERE job_id = ?", (job_id,)).fetchone()
+            if not r:
+                return None
+            return PublishedVideo(
+                video_id=r["video_id"],
+                job_id=r["job_id"],
+                youtube_id=r["youtube_id"],
+                title=r["title"],
+                description=r["description"] or "",
+                privacy_status=r["privacy_status"] or "private",
+                youtube_url=r["youtube_url"] or "",
+                published_at=r["published_at"],
+            )
+
+    def record_factual_claim(self, claim: FactualClaim) -> None:
+        """Store individual factual claim extracted from script."""
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO factual_claims (id, script_id, claim_text, verification_status,
+                                                       sources_checked_json, notes, is_flagged, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    claim.id,
+                    claim.script_id,
+                    claim.claim_text,
+                    claim.verification_status,
+                    json.dumps(claim.sources_checked),
+                    claim.notes,
+                    1 if claim.is_flagged else 0,
+                    claim.created_at,
+                ),
+            )
+
+    def get_factual_claims_for_script(self, script_id: str) -> List[FactualClaim]:
+        """Retrieve all claims extracted for a specific script."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM factual_claims WHERE script_id = ? ORDER BY created_at ASC", (script_id,)
+            ).fetchall()
+        claims = []
+        for r in rows:
+            sources = []
+            if r["sources_checked_json"]:
+                try:
+                    sources = json.loads(r["sources_checked_json"])
+                except Exception:
+                    sources = []
+            claims.append(
+                FactualClaim(
+                    id=r["id"],
+                    script_id=r["script_id"],
+                    claim_text=r["claim_text"],
+                    verification_status=r["verification_status"],
+                    sources_checked=sources,
+                    notes=r["notes"] or "",
+                    is_flagged=bool(r["is_flagged"]),
+                    created_at=r["created_at"],
+                )
+            )
+        return claims
 
     # --------------------------------------------------------------------------
     # Helper Serialization

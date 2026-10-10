@@ -254,3 +254,82 @@ class OwnerChannelStatus:
         return asdict(self)
 
 
+@dataclass
+class DecisionLog:
+    """Durable audit trail of AI agent autonomous decisions."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    decision_type: str = "TOPIC_SELECTION"  # TOPIC_SELECTION, PUBLISHING, PAUSE, STRATEGY_ADAPTATION
+    input_summary: str = ""
+    chosen_action: str = ""
+    rationale: str = ""
+    outcome: str = ""
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ContentStrategy:
+    """Content strategy metadata for empirical learning and feedback loops."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    job_id: str = ""
+    script_id: Optional[str] = None
+    category: str = "strange_history"  # strange_history, unsolved_mystery, real_curiosity
+    hook_style: str = "curiosity_gap"   # curiosity_gap, contradictory_fact, historical_anomaly
+    target_duration_sec: int = 45
+    words_per_minute: float = 150.0
+    narrative_archetype: str = "escalating_revelation"  # escalating_revelation, ironclad_puzzle, lost_relic
+    experiment_id: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class StrategyWeight:
+    """Empirical weight dynamically updated based on video performance at comparable age."""
+    strategy_key: str = ""
+    weight: float = 1.0
+    performance_multiplier: float = 1.0
+    sample_count: int = 0
+    last_updated: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class SchedulerState:
+    """Persistent scheduler heartbeat and health state."""
+    id: int = 1
+    last_research_at: Optional[str] = None
+    last_production_at: Optional[str] = None
+    last_analytics_at: Optional[str] = None
+    consecutive_failures: int = 0
+    is_paused: bool = False
+    pause_reason: Optional[str] = None
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class FactualClaim:
+    """Individual factual assertion extracted from a script for verification."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    script_id: str = ""
+    claim_text: str = ""
+    verification_status: str = "UNVERIFIED"  # VERIFIED, UNVERIFIED, SPECULATIVE
+    sources_checked: List[str] = field(default_factory=list)
+    notes: str = ""
+    is_flagged: bool = False
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+

@@ -107,17 +107,45 @@ class Orchestrator:
         self.db.update_job_state(job.id, JobState.READY, stage="ready_for_review")
         logger.info(f"Job {job.id} passed all production stages and is in READY state.")
 
-        # If publishing mode is autonomous, proceed to UPLOADING
-        if config.youtube_publish_mode == "autonomous":
+        # Evaluate Autonomous Publishing Policy
+        from app.intelligence.decision_engine import DecisionEngine
+        from app.youtube.publisher import YouTubePublisher
+
+        decision_engine = DecisionEngine(database=self.db)
+        can_publish, target_privacy, reason = decision_engine.evaluate_publishing_safety(job)
+
+        if can_publish:
             self.db.update_job_state(job.id, JobState.UPLOADING, stage="uploading")
-            self._step_upload(job)
-            self.db.update_job_state(job.id, JobState.PUBLISHED, stage="published")
-            logger.info(f"Job {job.id} successfully published to YouTube.")
-        elif config.youtube_publish_mode == "review-required":
-            self.db.update_job_state(job.id, JobState.NEEDS_REVIEW, stage="awaiting_owner_approval")
-            logger.info(f"Job {job.id} marked as NEEDS_REVIEW awaiting owner approval.")
+            publisher = YouTubePublisher(database=self.db)
+            success, msg, details = publisher.publish_video(job, privacy_status=target_privacy)
+            if success:
+                self.db.update_job_state(
+                    job.id,
+                    JobState.PUBLISHED,
+                    stage="published",
+                    payload_updates={"youtube_url": details.get("url"), "youtube_id": details.get("youtube_id")},
+                )
+                logger.info(f"Job {job.id} successfully published to YouTube ({target_privacy}): {msg}")
+            else:
+                self.db.update_job_state(
+                    job.id,
+                    JobState.NEEDS_REVIEW,
+                    stage="upload_blocked",
+                    error_message=msg,
+                    payload_updates={"upload_blocker": details.get("blocker")},
+                )
+                logger.warning(f"Job {job.id} upload blocked: {msg}. Moved to NEEDS_REVIEW.")
         else:
-            logger.info(f"Publishing is disabled by configuration. Job {job.id} remains in READY state.")
+            if config.youtube_publish_mode == "disabled":
+                logger.info(f"Publishing mode is disabled. Job {job.id} remains in READY state.")
+            else:
+                self.db.update_job_state(
+                    job.id,
+                    JobState.NEEDS_REVIEW,
+                    stage="publishing_safeguard",
+                    error_message=reason,
+                )
+                logger.warning(f"Job {job.id} publishing safeguard: {reason}. Moved to NEEDS_REVIEW.")
 
     def _handle_failure(self, job: Job, error_msg: str) -> None:
         """Handle job step failure with bounded retries."""
@@ -173,9 +201,29 @@ class Orchestrator:
 
 
     def _step_scripting(self, job: Job) -> None:
-        """Phase 3 hook: Original story generation & validation."""
-        logger.debug(f"[Phase 3 Hook] Running story script generator for job {job.id}")
-        time.sleep(0.1)
+        """Phase 3: Original 3-Act story generation & factual verification."""
+        logger.info(f"Executing Phase 3 storytelling engine for job {job.id} ('{job.title}')...")
+        from app.scripts.story_engine import StoryEngine
+        engine = StoryEngine(database=self.db)
+        story = engine.generate_story(job)
+
+        self.db.update_job_state(
+            job.id,
+            JobState.SCRIPTING,
+            stage="script_generated",
+            payload_updates={
+                "script_id": story.id,
+                "word_count": story.word_count,
+                "estimated_duration_sec": story.estimated_duration_sec,
+                "hook_text": story.hook_text,
+                "factual_status": story.factual_verification_status,
+                "scenes_count": len(story.scenes),
+            },
+        )
+        logger.info(
+            f"Phase 3 storytelling complete for job {job.id}: {story.word_count} words, "
+            f"~{story.estimated_duration_sec}s, {len(story.scenes)} scenes, factual: {story.factual_verification_status}."
+        )
 
     def _step_narrating(self, job: Job) -> None:
         """Phase 4 hook: Natural local TTS narration."""
@@ -192,7 +240,8 @@ class Orchestrator:
         logger.debug(f"[QA Hook] Running QA verification checks for job {job.id}")
         time.sleep(0.1)
 
-    def _step_upload(self, job: Job) -> None:
-        """Phase 7 hook: YouTube Data API upload."""
-        logger.debug(f"[Phase 7 Hook] Uploading video to YouTube for job {job.id}")
-        time.sleep(0.1)
+    def _step_upload(self, job: Job, privacy_status: str = "public") -> Tuple[bool, str, Dict[str, Any]]:
+        """Phase 7: YouTube Data API upload via publisher."""
+        from app.youtube.publisher import YouTubePublisher
+        publisher = YouTubePublisher(database=self.db)
+        return publisher.publish_video(job, privacy_status=privacy_status)

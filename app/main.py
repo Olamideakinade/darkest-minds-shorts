@@ -86,14 +86,25 @@ def cmd_health() -> int:
 
 
 def cmd_status() -> int:
-    """Print current queue status and job counts."""
+    """Print current queue status, autonomous scheduler state, and job counts."""
     counts = db.count_jobs_by_state()
     hw = inspect_hardware()
-    print(f"System Status: OK | Free Disk: {hw.free_disk_gb:.1f} GB")
-    print("Job Queue Distribution:")
-    for state, cnt in counts.items():
+    state = db.get_scheduler_state()
+    print("=" * 70)
+    print(" MHIDE STORY INTELLIGENCE — AUTONOMOUS CHANNEL OPERATOR STATUS")
+    print("=" * 70)
+    print(f"  • Operating State:        {'PAUSED (' + (state.pause_reason or 'paused') + ')' if state.is_paused else 'ACTIVE & OPERATING'}")
+    print(f"  • Publishing Mode:        {config.youtube_publish_mode.upper()} (Default visibility: {config.youtube_default_privacy})")
+    print(f"  • Max Daily Uploads:      {config.max_daily_uploads}")
+    print(f"  • Free Disk Space:        {hw.free_disk_gb:.1f} GB (Guard threshold: {config.min_disk_free_gb:.1f} GB)")
+    print(f"  • Last Research:          {state.last_research_at or 'Not run yet'}")
+    print(f"  • Last Production:        {state.last_production_at or 'Not run yet'}")
+    print(f"  • Last Strategy Feedback: {state.last_analytics_at or 'Not run yet'}")
+    print("\nJob Queue Distribution:")
+    for state_name, cnt in counts.items():
         if cnt > 0:
-            print(f"  • {state:<15}: {cnt}")
+            print(f"  • {state_name:<15}: {cnt}")
+    print("=" * 70)
     return 0
 
 
@@ -287,18 +298,152 @@ def cmd_channel_status() -> int:
     return 0
 
 
+def cmd_autonomous_cycle() -> int:
+    """Execute a single autonomous cycle (research, decision engine, production, learning feedback)."""
+    from app.scheduler.engine import AutonomousScheduler
+    print("=" * 70)
+    print(" MHIDE STORY INTELLIGENCE — EXECUTING AUTONOMOUS CYCLE")
+    print("=" * 70)
+    scheduler = AutonomousScheduler()
+    res = scheduler.run_cycle()
+    print(f"Status:             {res.get('status')}")
+    print(f"Research Triggered: {'Yes' if res.get('research_triggered') else 'No (interval active)'}")
+    print(f"Job Enqueued:       {'Yes (' + str(res.get('selected_job_id')) + ')' if res.get('job_enqueued') else 'No'}")
+    print(f"Job Processed:      {'Yes (' + str(res.get('processed_job_id')) + ' -> ' + str(res.get('processed_job_state')) + ')' if res.get('job_processed') else 'No'}")
+    print(f"Learning Feedback:  {'Updated' if res.get('learning_updated') else 'No change'}")
+    if res.get("errors"):
+        print(f"Errors Encountered: {', '.join(res.get('errors'))}")
+    print("=" * 70)
+    return 0 if res.get("status") in ("SUCCESS", "PAUSED") else 1
+
+
+def cmd_daemon(args: argparse.Namespace) -> int:
+    """Start persistent background autonomous scheduler daemon."""
+    from app.scheduler.engine import AutonomousScheduler
+    scheduler = AutonomousScheduler()
+    interval = getattr(args, "interval", 60)
+    max_iter = getattr(args, "max_iterations", None)
+    scheduler.start_daemon(poll_interval_seconds=interval, max_iterations=max_iter)
+    return 0
+
+
+def cmd_pause(args: argparse.Namespace) -> int:
+    """Globally pause autonomous operation."""
+    from app.scheduler.engine import AutonomousScheduler
+    reason = getattr(args, "reason", "Paused via CLI command")
+    AutonomousScheduler().pause(reason=reason)
+    print(f"✓ Autonomous operation globally PAUSED. Reason: {reason}")
+    return 0
+
+
+def cmd_resume() -> int:
+    """Resume autonomous operation."""
+    from app.scheduler.engine import AutonomousScheduler
+    AutonomousScheduler().resume()
+    print("✓ Autonomous operation RESUMED. Scheduled cycles active.")
+    return 0
+
+
+def cmd_strategy() -> int:
+    """Display empirical content strategy weights and measured feedback report."""
+    from app.analytics.learning_engine import LearningEngine
+    engine = LearningEngine()
+    print(engine.get_strategy_performance_report())
+    return 0
+
+
+def cmd_decisions(args: argparse.Namespace) -> int:
+    """Display recent autonomous decision logs with explainable rationale."""
+    limit = getattr(args, "limit", 10)
+    logs = db.get_decision_logs(limit=limit)
+    print("=" * 70)
+    print(f" AUTONOMOUS DECISION LOGS & AUDIT TRAIL ({len(logs)} RECENT ENTRIES)")
+    print("=" * 70)
+    if not logs:
+        print("No autonomous decisions recorded yet.")
+        print("Decisions are logged automatically when the decision engine runs.")
+    else:
+        for idx, d in enumerate(logs, start=1):
+            print(f"\n#{idx}. [{d.decision_type}] at {d.created_at[:19]} UTC")
+            print(f"    • Chosen Action: {d.chosen_action}")
+            print(f"    • Rationale:     {d.rationale}")
+            if d.outcome:
+                print(f"    • Outcome:       {d.outcome}")
+    print("=" * 70)
+    return 0
+
+
+def cmd_test_story(args: argparse.Namespace) -> int:
+    """Generate an original 3-Act storytelling script with factual verification."""
+    from app.scripts.story_engine import StoryEngine
+    from app.database.models import Job
+
+    topic = getattr(args, "topic", None) or "The Broom Closet Heist: How the Mona Lisa Became Famous"
+    print("=" * 70)
+    print(" MHIDE STORY INTELLIGENCE — ORIGINAL 3-ACT STORY GENERATION")
+    print("=" * 70)
+    print(f"Topic: {topic}\n")
+
+    orch_job = db.create_job(
+        title=topic,
+        payload={"topic": topic, "angle": "The untold story of the 1911 Louvre heist", "category": "strange_history"},
+    )
+    engine = StoryEngine()
+    story = engine.generate_story(orch_job)
+
+    print("ACT 1 — THE HOOK (0–3s, High Curiosity / Zero Fluff):")
+    print(f"  \"{story.hook_text}\"")
+    print("\nACT 2 — ESCALATION (3–30s, Rising Stakes & Evidence):")
+    print(f"  \"{story.escalation_text}\"")
+    print("\nACT 3 — PAYOFF (30–45s, Reveal & Lingering Mystery):")
+    print(f"  \"{story.payoff_text}\"")
+
+    print("\nMETRICS & PACING:")
+    print(f"  • Total Words:          {story.word_count} words")
+    print(f"  • Estimated Duration:   {story.estimated_duration_sec} seconds (at 150 WPM)")
+    print(f"  • Visual Scenes:        {len(story.scenes)} scenes configured")
+
+    print("\nFACTUAL VERIFICATION:")
+    print(f"  • Overall Status:       {story.factual_verification_status}")
+    print(f"  • Verification Notes:   {story.factual_notes}")
+    if story.factual_claims:
+        print(f"  • Verified Claims:      {len(story.factual_claims)} assertions extracted")
+        for c in story.factual_claims[:3]:
+            print(f"    - [{c.verification_status}] {c.claim_text}")
+
+    print("=" * 70)
+    return 0
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Mhide Story Intelligence — Autonomous YouTube Shorts Agent")
+    parser = argparse.ArgumentParser(description="Mhide Story Intelligence — Autonomous YouTube Shorts Channel Operator")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     subparsers.add_parser("health", help="Run comprehensive system health checks")
-    subparsers.add_parser("status", help="Show current queue and job counts")
+    subparsers.add_parser("status", help="Show current queue and autonomous scheduler status")
     subparsers.add_parser("init-db", help="Initialize or migrate SQLite database")
     subparsers.add_parser("test-llm", help="Test local LLM response")
     subparsers.add_parser("test-tts", help="Generate a sample voiceover audio clip")
     subparsers.add_parser("enqueue-test", help="Enqueue a test story job")
     subparsers.add_parser("run", help="Process queued jobs through orchestrator")
     subparsers.add_parser("channel-status", help="Display owner channel connection status and OAuth permissions")
+
+    # Autonomous Operator Commands
+    subparsers.add_parser("cycle", help="Execute single autonomous loop (research, topic selection, production, learning)")
+    daemon_parser = subparsers.add_parser("daemon", help="Run persistent autonomous scheduler daemon loop")
+    daemon_parser.add_argument("--interval", type=int, default=60, help="Polling interval in seconds")
+    daemon_parser.add_argument("--max-iterations", type=int, default=None, help="Max iterations before exit (for testing)")
+
+    pause_parser = subparsers.add_parser("pause", help="Globally pause autonomous operation")
+    pause_parser.add_argument("--reason", type=str, default="Paused via CLI command", help="Reason for pause")
+    subparsers.add_parser("resume", help="Resume autonomous operation")
+
+    subparsers.add_parser("strategy", help="Display empirical content strategy weights and measured feedback report")
+    decisions_parser = subparsers.add_parser("decisions", help="Display recent autonomous decision logs with explainable rationale")
+    decisions_parser.add_argument("--limit", type=int, default=10, help="Max decision entries to display")
+
+    story_parser = subparsers.add_parser("story", help="Generate a test 3-Act original story with factual verification")
+    story_parser.add_argument("--topic", type=str, help="Topic for story generation")
 
     # Research Subcommand
     research_parser = subparsers.add_parser("research", help="YouTube competitor and trend intelligence research")
@@ -330,6 +475,20 @@ def main() -> None:
         sys.exit(cmd_channel_status())
     elif args.command == "research":
         sys.exit(cmd_research(args))
+    elif args.command == "cycle":
+        sys.exit(cmd_autonomous_cycle())
+    elif args.command == "daemon":
+        sys.exit(cmd_daemon(args))
+    elif args.command == "pause":
+        sys.exit(cmd_pause(args))
+    elif args.command == "resume":
+        sys.exit(cmd_resume())
+    elif args.command == "strategy":
+        sys.exit(cmd_strategy())
+    elif args.command == "decisions":
+        sys.exit(cmd_decisions(args))
+    elif args.command == "story":
+        sys.exit(cmd_test_story(args))
     else:
         # Default to health check if no command specified
         sys.exit(cmd_health())
@@ -337,4 +496,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 

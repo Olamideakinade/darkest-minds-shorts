@@ -1,51 +1,79 @@
-# Mhide Story Intelligence — Autonomous YouTube Shorts Agent
+# Mhide Story Intelligence — Autonomous YouTube Shorts Channel Operator
 
-> **A real, extensible, zero-cost autonomous AI storytelling channel operator engineered for macOS local execution and future cloud scalability.**
-
----
-
-## 1. System Overview
-
-**Mhide Story Intelligence** is an autonomous AI agent system engineered to produce high-retention faceless YouTube Shorts in storytelling niches (*Strange History, Unsolved Mysteries, Documented Real-Life Curiosities*).
-
-It operates locally on macOS using free, open-source, and zero-cost local tools:
-- **Local Language Model**: Ollama (`llama3.2:1b` fast story generation / `qwen2.5-coder:7b` reasoning).
-- **Natural Voiceover (TTS)**: Free neural text-to-speech engine (`edge-tts`) with studio-grade voices and word boundary timing.
-- **Media Processing**: Native `FFmpeg 9.0.1` and `FFprobe` for 9:16 vertical video assembly.
-- **Durable Local State**: SQLite in WAL mode with atomic transactions, crash recovery, and persistent job queue.
-- **Channel Growth & Publishing**: Official YouTube Data API v3 and OAuth 2.0 with strict publishing safety guards.
+> **A real, persistent, zero-cost autonomous AI agent system engineered for macOS local execution to operate and grow an existing YouTube Shorts channel independently.**
 
 ---
 
-## 2. Hardware Inspection & Architecture Profile
+## 1. System Overview & Autonomous Architecture
 
-The system automatically inspected the host machine and configured optimal parameters:
+**Mhide Story Intelligence** is an autonomous AI channel operator designed to manage an existing YouTube Shorts channel in storytelling niches (*Strange History, Unsolved Mysteries, Documented Real-Life Curiosities*).
+
+### The Autonomous Paradigm
+Unlike chatbots or prompt-assisted tools, Mhide Story Intelligence operates **independently without requiring manual daily prompts, topic approvals, or upload initiation**:
+1. **Autonomous Scheduled Research**: Continuously monitors competitor channels and search queries via YouTube Data API v3.
+2. **Autonomous Decision Engine**: Selects promising storytelling opportunities based on research evidence, active strategy weights, and past performance.
+3. **High-Quality Original Storytelling (Phase 3)**: Generates 3-Act narrative scripts with scene directions, factual claim verification, and anti-cliché filters.
+4. **Local Voiceover & Media Assembly**: Synthesizes natural narration using free neural TTS (`edge-tts`) and renders vertical 9:16 Shorts via native `FFmpeg`.
+5. **Quality & Safety Assurance**: Performs automated audio, video, factual, and originality checks prior to publication.
+6. **Autonomous Publishing Policy**: Supports 3 distinct operating modes (`disabled`, `private_test`, `autonomous_public`) with daily upload limits, duplicate prevention, and auto-pause on failures.
+7. **Empirical Learning Feedback Loop**: Analyzes eligible video performance at comparable observation ages (24h, 48h, 7d) to update content strategy weights empirically.
+8. **Persistent Scheduler Daemon**: Survives restarts, limits concurrency to 1 render job, monitors disk space, and runs unattended.
+9. **Telegram as Control Room**: Telegram provides monitoring, daily digests, alerts, and remote pause/resume controls—it is NOT the agent's brain or required trigger.
+
+---
+
+## 2. Hardware Profile & Resource Management
+
+The system operates locally on macOS using free, open-source, and local-first tools:
 
 | Component | Detected Specification | Architecture Decision |
 | :--- | :--- | :--- |
 | **Operating System** | macOS 15.8.2 (Darwin x86_64) | Native macOS local backend |
 | **CPU** | Intel Core i7-8850H @ 2.60GHz (12 cores) | 1 concurrent render job to preserve thermal headroom |
 | **Memory (RAM)** | 16.0 GB RAM | Optimal for `llama3.2:1b` (1.3GB footprint, high CPU throughput) |
-| **Disk Space** | 96.2 GB available | Sufficient for video caching (guard threshold set to 10GB) |
-| **Local LLM** | Ollama running at `127.0.0.1:11434` | Models: `llama3.2:1b`, `qwen2.5-coder:7b` |
-| **Local TTS** | Edge-TTS (100% free neural speech) | High quality voices (`en-US-ChristopherNeural`, `en-US-GuyNeural`) |
+| **Disk Space** | 96.2 GB available | Auto-pauses if free space drops below 10.0 GB threshold |
+| **Local LLM** | Ollama running at `127.0.0.1:11434` | Models: `llama3.2:1b` (fast story), `qwen2.5-coder:7b` (reasoning) |
+| **Local TTS** | Edge-TTS (100% free neural speech) | Voices: `en-US-ChristopherNeural`, `en-US-GuyNeural` |
 | **FFmpeg** | FFmpeg 9.0.1 with libx264/mp3lame | 1080x1920 9:16 vertical video rendering |
+| **Spending Guard** | Zero Cost Guarantee | Paid APIs strictly disabled (`PAID_APIS_ENABLED=false`) |
 
 ---
 
-## 3. Production Lifecycle & State Machine
+## 3. Autonomous Operating Modes & Lifecycle
 
-Every video proceeds through an explicit state machine with job locking and crash recovery:
+### Publishing Modes
+- `disabled`: Safe local production only. Videos are rendered and quality-checked, remaining in `READY` state.
+- `private_test`: Videos upload to the authenticated owner channel as `private` for manual inspection.
+- `autonomous_public`: Once the owner's existing channel is authenticated and this mode is explicitly enabled, qualifying videos that pass all QA checks publish automatically.
 
 ```
-[QUEUED] ──► [RESEARCHING] ──► [SCRIPTING] ──► [NARRATING] ──► [ASSEMBLING] ──► [QA] ──► [READY]
-                                                                                           │
-                                  ┌────────────────────────────────────────────────────────┘
-                                  ▼
-                     [YOUTUBE_PUBLISH_MODE]
-                     ├── "disabled"        ──► Stays in [READY] (safe local render only)
-                     ├── "review-required" ──► Moves to [NEEDS_REVIEW] (awaits Telegram/Owner approval)
-                     └── "autonomous"      ──► [UPLOADING] ──► [PUBLISHED]
+[SCHEDULED RESEARCH]
+        │
+        ▼
+[DECISION ENGINE] ──► Selects best topic + logs rationale to decision_logs
+        │
+        ▼
+[STORY & SCRIPT]  ──► 3-Act narrative, scene visual cues, factual claims verified
+        │
+        ▼
+[NARRATION (TTS)] ──► Neural speech generated + word-boundary timestamps
+        │
+        ▼
+[MEDIA ASSEMBLY]  ──► 1080x1920 vertical video rendered via FFmpeg
+        │
+        ▼
+[QUALITY ASSURANCE] (Audio, visual, pacing, originality, factual score)
+        │
+        ├── FAILS QA ──► [NEEDS_REVIEW] / [FAILED] + Alert owner
+        └── PASSES QA ──► Check Publishing Mode:
+                             ├── disabled          ──► [READY] (local only)
+                             ├── private_test      ──► [UPLOADING] (private video)
+                             └── autonomous_public ──► [UPLOADING] (public Shorts)
+                                                             │
+                                                             ▼
+                                                    [EMPIRICAL LEARNING LOOP]
+                                                    (Evaluates 24h/48h/7d metrics,
+                                                     updates strategy weights)
 ```
 
 ### Safety & Crash Recovery

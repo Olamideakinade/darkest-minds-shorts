@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from app.utils.logger import logger
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 
 MIGRATION_V1_SQL = """
 -- Schema Version Table
@@ -248,6 +248,71 @@ CREATE TABLE IF NOT EXISTS owner_channel (
 
 
 
+MIGRATION_V3_SQL = """
+-- Autonomous Decision Logs Table (Complete audit trail of AI agent decisions)
+CREATE TABLE IF NOT EXISTS decision_logs (
+    id TEXT PRIMARY KEY,
+    decision_type TEXT NOT NULL,
+    input_summary TEXT NOT NULL,
+    chosen_action TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    outcome TEXT DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_decision_logs_type ON decision_logs(decision_type);
+CREATE INDEX IF NOT EXISTS idx_decision_logs_created ON decision_logs(created_at);
+
+-- Content Strategy Metadata Table for Measurable Feedback Loops
+CREATE TABLE IF NOT EXISTS content_strategies (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    script_id TEXT,
+    category TEXT NOT NULL,
+    hook_style TEXT NOT NULL,
+    target_duration_sec INTEGER NOT NULL,
+    words_per_minute REAL DEFAULT 150.0,
+    narrative_archetype TEXT NOT NULL,
+    experiment_id TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_content_strategies_job ON content_strategies(job_id);
+
+-- Dynamic Strategy Weights (Updated based on measured video performance)
+CREATE TABLE IF NOT EXISTS active_strategy_weights (
+    strategy_key TEXT PRIMARY KEY,
+    weight REAL NOT NULL DEFAULT 1.0,
+    performance_multiplier REAL NOT NULL DEFAULT 1.0,
+    sample_count INTEGER NOT NULL DEFAULT 0,
+    last_updated TEXT NOT NULL
+);
+
+-- Persistent Scheduler State & Health Lock
+CREATE TABLE IF NOT EXISTS scheduler_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_research_at TEXT,
+    last_production_at TEXT,
+    last_analytics_at TEXT,
+    consecutive_failures INTEGER DEFAULT 0,
+    is_paused INTEGER DEFAULT 0,
+    pause_reason TEXT,
+    updated_at TEXT NOT NULL
+);
+
+-- Factual Claims Verification Table
+CREATE TABLE IF NOT EXISTS factual_claims (
+    id TEXT PRIMARY KEY,
+    script_id TEXT NOT NULL,
+    claim_text TEXT NOT NULL,
+    verification_status TEXT NOT NULL,
+    sources_checked_json TEXT DEFAULT '[]',
+    notes TEXT DEFAULT '',
+    is_flagged INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_factual_claims_script ON factual_claims(script_id);
+"""
+
+
 def apply_migrations(conn: sqlite3.Connection) -> None:
     """Apply database migrations up to current SCHEMA_VERSION."""
     cursor = conn.cursor()
@@ -276,6 +341,39 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
         now_iso = datetime.now(timezone.utc).isoformat()
         cursor.execute("INSERT INTO schema_version (version, applied_at) VALUES (2, ?)", (now_iso,))
         conn.commit()
+        current_version = 2
         logger.info("Database migration V2 applied successfully.")
+
+    if current_version < 3:
+        logger.info(f"Applying database schema migration V3 (current: {current_version})...")
+        cursor.executescript(MIGRATION_V3_SQL)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cursor.execute("INSERT INTO schema_version (version, applied_at) VALUES (3, ?)", (now_iso,))
+        conn.commit()
+        current_version = 3
+        logger.info("Database migration V3 applied successfully.")
+
+    if current_version < 4:
+        logger.info(f"Applying database schema migration V4 (current: {current_version})...")
+        cursor.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS factual_claims (
+                id TEXT PRIMARY KEY,
+                script_id TEXT NOT NULL,
+                claim_text TEXT NOT NULL,
+                verification_status TEXT NOT NULL,
+                sources_checked_json TEXT DEFAULT '[]',
+                notes TEXT DEFAULT '',
+                is_flagged INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_factual_claims_script ON factual_claims(script_id);
+            """
+        )
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cursor.execute("INSERT INTO schema_version (version, applied_at) VALUES (4, ?)", (now_iso,))
+        conn.commit()
+        logger.info("Database migration V4 applied successfully.")
     else:
         logger.debug(f"Database schema is already at version {current_version}.")
+
