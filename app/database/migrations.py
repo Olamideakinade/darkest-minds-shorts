@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from app.utils.logger import logger
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 MIGRATION_V1_SQL = """
 -- Schema Version Table
@@ -57,11 +57,11 @@ CREATE TABLE IF NOT EXISTS researched_videos (
     estimated_vph REAL DEFAULT 0.0,
     topic_tags_json TEXT DEFAULT '[]',
     hook_summary TEXT DEFAULT '',
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (channel_id) REFERENCES competitor_channels(channel_id) ON DELETE CASCADE
+    created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_researched_channel ON researched_videos(channel_id);
 CREATE INDEX IF NOT EXISTS idx_researched_published ON researched_videos(published_at);
+
 
 -- Story Ideas Table
 CREATE TABLE IF NOT EXISTS story_ideas (
@@ -176,10 +176,82 @@ CREATE TABLE IF NOT EXISTS system_events (
 CREATE INDEX IF NOT EXISTS idx_events_created ON system_events(created_at);
 """
 
+MIGRATION_V2_SQL = """
+-- Historical Observations Table for Trend & Velocity Tracking
+CREATE TABLE IF NOT EXISTS video_observations (
+    id TEXT PRIMARY KEY,
+    video_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    view_count INTEGER NOT NULL,
+    like_count INTEGER DEFAULT 0,
+    comment_count INTEGER DEFAULT 0,
+    observed_at TEXT NOT NULL,
+    search_query TEXT DEFAULT '',
+    discovery_source TEXT DEFAULT 'keyword_search'
+);
+CREATE INDEX IF NOT EXISTS idx_observations_video_time ON video_observations(video_id, observed_at);
+
+CREATE INDEX IF NOT EXISTS idx_observations_observed_at ON video_observations(observed_at);
+CREATE INDEX IF NOT EXISTS idx_observations_channel ON video_observations(channel_id);
+
+-- API Response Cache Table (Saves Quota, Prevents Redundant Network Hits)
+CREATE TABLE IF NOT EXISTS api_cache (
+    cache_key TEXT PRIMARY KEY,
+    endpoint TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_api_cache_expires ON api_cache(expires_at);
+
+-- Daily API Quota Tracking Table
+CREATE TABLE IF NOT EXISTS api_quota_usage (
+    date_utc TEXT PRIMARY KEY,
+    units_used INTEGER NOT NULL DEFAULT 0,
+    request_count INTEGER NOT NULL DEFAULT 0,
+    last_updated TEXT NOT NULL
+);
+
+-- Opportunity Analyses Table
+CREATE TABLE IF NOT EXISTS opportunity_analyses (
+    id TEXT PRIMARY KEY,
+    topic TEXT NOT NULL,
+    primary_video_id TEXT,
+    related_video_ids_json TEXT DEFAULT '[]',
+    composite_score REAL NOT NULL,
+    confidence TEXT NOT NULL,
+    signals_json TEXT NOT NULL DEFAULT '{}',
+    supporting_observations_json TEXT NOT NULL DEFAULT '[]',
+    missing_evidence_json TEXT NOT NULL DEFAULT '[]',
+    failure_risks_json TEXT NOT NULL DEFAULT '[]',
+    suggested_angle TEXT NOT NULL,
+    factual_verification_notes TEXT DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_opportunities_score ON opportunity_analyses(composite_score DESC);
+CREATE INDEX IF NOT EXISTS idx_opportunities_created ON opportunity_analyses(created_at);
+
+-- Authenticated Owner Channel State (Completely decoupled from public competitor research)
+CREATE TABLE IF NOT EXISTS owner_channel (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    channel_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    custom_url TEXT DEFAULT '',
+    subscriber_count INTEGER DEFAULT 0,
+    video_count INTEGER DEFAULT 0,
+    scopes_authorized_json TEXT DEFAULT '[]',
+    is_connected INTEGER DEFAULT 0,
+    connected_at TEXT,
+    last_verified_at TEXT
+);
+"""
+
+
 
 def apply_migrations(conn: sqlite3.Connection) -> None:
     """Apply database migrations up to current SCHEMA_VERSION."""
     cursor = conn.cursor()
+    from datetime import datetime, timezone
 
     # Create version table if needed
     cursor.execute(
@@ -192,10 +264,18 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     if current_version < 1:
         logger.info(f"Applying database schema migration V1 (current: {current_version})...")
         cursor.executescript(MIGRATION_V1_SQL)
-        from datetime import datetime, timezone
         now_iso = datetime.now(timezone.utc).isoformat()
         cursor.execute("INSERT INTO schema_version (version, applied_at) VALUES (1, ?)", (now_iso,))
         conn.commit()
+        current_version = 1
         logger.info("Database migration V1 applied successfully.")
+
+    if current_version < 2:
+        logger.info(f"Applying database schema migration V2 (current: {current_version})...")
+        cursor.executescript(MIGRATION_V2_SQL)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        cursor.execute("INSERT INTO schema_version (version, applied_at) VALUES (2, ?)", (now_iso,))
+        conn.commit()
+        logger.info("Database migration V2 applied successfully.")
     else:
         logger.debug(f"Database schema is already at version {current_version}.")

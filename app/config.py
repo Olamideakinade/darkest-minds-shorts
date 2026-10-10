@@ -69,6 +69,13 @@ class Config:
     target_video_duration_min: int = int(os.getenv("TARGET_VIDEO_DURATION_MIN", "25"))
     target_video_duration_max: int = int(os.getenv("TARGET_VIDEO_DURATION_MAX", "55"))
 
+    # Phase 2: YouTube Research Engine Settings
+    research_max_videos_per_run: int = int(os.getenv("RESEARCH_MAX_VIDEOS_PER_RUN", "25"))
+    research_max_api_requests: int = int(os.getenv("RESEARCH_MAX_API_REQUESTS", "5"))
+    research_cache_ttl_hours: int = int(os.getenv("RESEARCH_CACHE_TTL_HOURS", "6"))
+    research_lookback_days: int = int(os.getenv("RESEARCH_LOOKBACK_DAYS", "30"))
+
+
     def __post_init__(self) -> None:
         # Parse telegram allowed user IDs
         raw_ids = os.getenv("TELEGRAM_ALLOWED_USER_IDS", "")
@@ -135,7 +142,12 @@ class Config:
             "daily_shorts_target": self.daily_shorts_target,
             "max_queue_size": self.max_queue_size,
             "render_concurrency": self.render_concurrency,
+            "research_max_videos_per_run": self.research_max_videos_per_run,
+            "research_max_api_requests": self.research_max_api_requests,
+            "research_cache_ttl_hours": self.research_cache_ttl_hours,
+            "research_lookback_days": self.research_lookback_days,
         }
+
 
 
 # Singleton configuration instance

@@ -178,3 +178,79 @@ class SystemEvent:
     message: str = ""
     details: Dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
+class VideoObservation:
+    """Historical point-in-time observation of a YouTube video."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    video_id: str = ""
+    channel_id: str = ""
+    view_count: int = 0
+    like_count: int = 0
+    comment_count: int = 0
+    observed_at: str = field(default_factory=utc_now_iso)
+    search_query: str = ""
+    discovery_source: str = "keyword_search"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ApiCacheEntry:
+    """Cached response from YouTube API to protect quotas."""
+    cache_key: str
+    endpoint: str
+    response_json: str
+    created_at: str = field(default_factory=utc_now_iso)
+    expires_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
+class ApiQuotaRecord:
+    """Daily YouTube API quota usage record."""
+    date_utc: str
+    units_used: int = 0
+    request_count: int = 0
+    last_updated: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
+class OpportunityAnalysis:
+    """Scored storytelling opportunity with transparent evidence."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    topic: str = ""
+    primary_video_id: Optional[str] = None
+    related_video_ids: List[str] = field(default_factory=list)
+    composite_score: float = 0.0
+    confidence: str = "LOW"  # HIGH, MEDIUM, LOW
+    signals: Dict[str, float] = field(default_factory=dict)
+    supporting_observations: List[str] = field(default_factory=list)
+    missing_evidence: List[str] = field(default_factory=list)
+    failure_risks: List[str] = field(default_factory=list)
+    suggested_angle: str = ""
+    factual_verification_notes: str = ""
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class OwnerChannelStatus:
+    """Status and identity of the owner's authenticated YouTube channel."""
+    channel_id: str = ""
+    title: str = ""
+    custom_url: str = ""
+    subscriber_count: int = 0
+    video_count: int = 0
+    scopes_authorized: List[str] = field(default_factory=list)
+    is_connected: bool = False
+    connected_at: Optional[str] = None
+    last_verified_at: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+

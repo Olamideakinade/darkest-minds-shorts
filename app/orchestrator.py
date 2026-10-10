@@ -147,9 +147,30 @@ class Orchestrator:
     # --------------------------------------------------------------------------
 
     def _step_research(self, job: Job) -> None:
-        """Phase 2 hook: Competitor research & trend scoring."""
-        logger.debug(f"[Phase 2 Hook] Running research validation for job {job.id}")
-        time.sleep(0.1)
+        """Phase 2: YouTube competitor research & trend opportunity scoring."""
+        logger.info(f"Executing Phase 2 research for job {job.id} ('{job.title}')...")
+        from app.research.service import ResearchService
+        service = ResearchService(database=self.db)
+        query = job.payload.get("topic") or job.title
+
+        result = service.run_research(query=query, max_videos=10, use_demo_if_unconfigured=True)
+        if result.get("opportunities"):
+            best = result["opportunities"][0]
+            self.db.update_job_state(
+                job.id,
+                JobState.RESEARCHING,
+                stage="research_complete",
+                payload_updates={
+                    "top_opportunity": {
+                        "topic": best.topic,
+                        "score": best.composite_score,
+                        "confidence": best.confidence,
+                        "angle": best.suggested_angle,
+                    }
+                },
+            )
+        logger.info(f"Phase 2 research completed successfully for job {job.id}.")
+
 
     def _step_scripting(self, job: Job) -> None:
         """Phase 3 hook: Original story generation & validation."""

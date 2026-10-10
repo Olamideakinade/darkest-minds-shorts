@@ -21,9 +21,17 @@ from app.database.models import (
     QualityReport,
     PublishedVideo,
     SystemEvent,
+    VideoObservation,
+    ApiCacheEntry,
+    ApiQuotaRecord,
+    OpportunityAnalysis,
+    OwnerChannelStatus,
+    ResearchedVideo,
+    CompetitorChannel,
     utc_now_iso,
 )
 from app.utils.logger import logger
+
 
 
 class Database:
@@ -394,8 +402,348 @@ class Database:
             logger.debug(f"Failed to record system event to DB: {e}")
 
     # --------------------------------------------------------------------------
+    # Phase 2: YouTube Research, Observations, Caching, and Quota Management
+    # --------------------------------------------------------------------------
+
+    def save_researched_video(self, video: ResearchedVideo) -> None:
+        """Upsert a researched video metadata record."""
+        now = utc_now_iso()
+        with self.connection() as conn:
+            # Ensure channel exists in competitor_channels to satisfy foreign key in any migration state
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO competitor_channels (channel_id, title, tracked_since)
+                VALUES (?, ?, ?)
+                """,
+                (video.channel_id, video.channel_title or "Discovered Channel", now),
+            )
+            conn.execute(
+                """
+                INSERT INTO researched_videos (video_id, channel_id, channel_title, title, published_at,
+                                               duration_sec, view_count, like_count, comment_count,
+                                               estimated_vph, topic_tags_json, hook_summary, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(video_id) DO UPDATE SET
+                    view_count = excluded.view_count,
+                    like_count = excluded.like_count,
+                    comment_count = excluded.comment_count,
+                    estimated_vph = excluded.estimated_vph
+                """,
+                (
+                    video.video_id,
+                    video.channel_id,
+                    video.channel_title,
+                    video.title,
+                    video.published_at,
+                    video.duration_sec,
+                    video.view_count,
+                    video.like_count,
+                    video.comment_count,
+                    video.estimated_vph,
+                    json.dumps(video.topic_tags),
+                    video.hook_summary,
+                    video.created_at,
+                ),
+            )
+
+    def get_researched_video(self, video_id: str) -> Optional[ResearchedVideo]:
+        """Fetch a researched video by ID."""
+        with self.connection() as conn:
+            row = conn.execute("SELECT * FROM researched_videos WHERE video_id = ?", (video_id,)).fetchone()
+            if not row:
+                return None
+            return self._row_to_researched_video(row)
+
+    def get_researched_videos(self, limit: int = 50) -> List[ResearchedVideo]:
+        """List recently researched videos."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM researched_videos ORDER BY published_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [self._row_to_researched_video(r) for r in rows]
+
+    def get_channel_videos(self, channel_id: str) -> List[ResearchedVideo]:
+        """Fetch all researched videos from a specific channel."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM researched_videos WHERE channel_id = ? ORDER BY published_at DESC",
+                (channel_id,),
+            ).fetchall()
+            return [self._row_to_researched_video(r) for r in rows]
+
+    def record_observation(self, obs: VideoObservation) -> None:
+        """Store a point-in-time snapshot of video metrics."""
+        now = utc_now_iso()
+        with self.connection() as conn:
+            # Ensure parent records exist to satisfy foreign keys in any migration state
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO competitor_channels (channel_id, title, tracked_since)
+                VALUES (?, ?, ?)
+                """,
+                (obs.channel_id, "Discovered Channel", now),
+            )
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO researched_videos (video_id, channel_id, channel_title, title, published_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (obs.video_id, obs.channel_id, "Discovered Channel", obs.video_id, obs.observed_at, now),
+            )
+            conn.execute(
+                """
+                INSERT INTO video_observations (id, video_id, channel_id, view_count, like_count,
+                                                comment_count, observed_at, search_query, discovery_source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    obs.id,
+                    obs.video_id,
+                    obs.channel_id,
+                    obs.view_count,
+                    obs.like_count,
+                    obs.comment_count,
+                    obs.observed_at,
+                    obs.search_query,
+                    obs.discovery_source,
+                ),
+            )
+
+
+    def get_video_observations(self, video_id: str) -> List[VideoObservation]:
+        """Retrieve chronological observations for a video to calculate real velocity."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM video_observations WHERE video_id = ? ORDER BY observed_at ASC",
+                (video_id,),
+            ).fetchall()
+            return [
+                VideoObservation(
+                    id=r["id"],
+                    video_id=r["video_id"],
+                    channel_id=r["channel_id"],
+                    view_count=r["view_count"],
+                    like_count=r["like_count"],
+                    comment_count=r["comment_count"],
+                    observed_at=r["observed_at"],
+                    search_query=r["search_query"],
+                    discovery_source=r["discovery_source"],
+                )
+                for r in rows
+            ]
+
+    # --- API Response Caching (Zero-Cost & Quota Protection) ---
+
+    def get_cached_api_response(self, cache_key: str) -> Optional[str]:
+        """Fetch cached API response if not expired."""
+        now = utc_now_iso()
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT response_json FROM api_cache WHERE cache_key = ? AND expires_at > ?",
+                (cache_key, now),
+            ).fetchone()
+            if row:
+                return row["response_json"]
+        return None
+
+    def set_cached_api_response(self, cache_key: str, endpoint: str, response_json: str, ttl_hours: int = 6) -> None:
+        """Cache an API response with TTL in hours."""
+        from datetime import datetime, timezone, timedelta
+        now = datetime.now(timezone.utc)
+        expires_at = (now + timedelta(hours=ttl_hours)).isoformat()
+        now_iso = now.isoformat()
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO api_cache (cache_key, endpoint, response_json, created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (cache_key, endpoint, response_json, now_iso, expires_at),
+            )
+
+    # --- Daily Quota Usage Tracking ---
+
+    def record_quota_usage(self, units: int = 1) -> None:
+        """Track YouTube API quota units consumed today."""
+        from datetime import datetime, timezone
+        date_today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        now_iso = utc_now_iso()
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO api_quota_usage (date_utc, units_used, request_count, last_updated)
+                VALUES (?, ?, 1, ?)
+                ON CONFLICT(date_utc) DO UPDATE SET
+                    units_used = units_used + excluded.units_used,
+                    request_count = request_count + 1,
+                    last_updated = excluded.last_updated
+                """,
+                (date_today, units, now_iso),
+            )
+
+    def get_today_quota_usage(self) -> Dict[str, Any]:
+        """Retrieve estimated quota units and request counts used today."""
+        from datetime import datetime, timezone
+        date_today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM api_quota_usage WHERE date_utc = ?",
+                (date_today,),
+            ).fetchone()
+            if row:
+                return {
+                    "date_utc": row["date_utc"],
+                    "units_used": row["units_used"],
+                    "request_count": row["request_count"],
+                    "last_updated": row["last_updated"],
+                }
+        return {"date_utc": date_today, "units_used": 0, "request_count": 0, "last_updated": utc_now_iso()}
+
+    # --- Opportunity Analyses Persistence ---
+
+    def save_opportunity_analysis(self, analysis: OpportunityAnalysis) -> None:
+        """Store a scored storytelling opportunity with transparent evidence."""
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO opportunity_analyses (
+                    id, topic, primary_video_id, related_video_ids_json, composite_score,
+                    confidence, signals_json, supporting_observations_json, missing_evidence_json,
+                    failure_risks_json, suggested_angle, factual_verification_notes, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    analysis.id,
+                    analysis.topic,
+                    analysis.primary_video_id,
+                    json.dumps(analysis.related_video_ids),
+                    analysis.composite_score,
+                    analysis.confidence,
+                    json.dumps(analysis.signals),
+                    json.dumps(analysis.supporting_observations),
+                    json.dumps(analysis.missing_evidence),
+                    json.dumps(analysis.failure_risks),
+                    analysis.suggested_angle,
+                    analysis.factual_verification_notes,
+                    analysis.created_at,
+                ),
+            )
+
+    def list_opportunity_analyses(self, limit: int = 20) -> List[OpportunityAnalysis]:
+        """Fetch ranked opportunity analyses."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM opportunity_analyses ORDER BY composite_score DESC, created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [self._row_to_opportunity_analysis(r) for r in rows]
+
+    # --- Competitor Channels Management ---
+
+    def add_competitor_channel(self, channel: CompetitorChannel) -> None:
+        """Register a competitor channel to track."""
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO competitor_channels (channel_id, title, subscriber_count, total_videos, tracked_since, last_analyzed_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    channel.channel_id,
+                    channel.title,
+                    channel.subscriber_count,
+                    channel.total_videos,
+                    channel.tracked_since,
+                    channel.last_analyzed_at,
+                ),
+            )
+
+    def list_competitor_channels(self) -> List[CompetitorChannel]:
+        """Retrieve list of tracked competitor channels."""
+        with self.connection() as conn:
+            rows = conn.execute("SELECT * FROM competitor_channels ORDER BY tracked_since DESC").fetchall()
+            return [
+                CompetitorChannel(
+                    channel_id=r["channel_id"],
+                    title=r["title"],
+                    subscriber_count=r["subscriber_count"],
+                    total_videos=r["total_videos"],
+                    tracked_since=r["tracked_since"],
+                    last_analyzed_at=r["last_analyzed_at"],
+                )
+                for r in rows
+            ]
+
+    # --- Authenticated Owner Channel State Management ---
+
+    def get_owner_channel_status(self) -> OwnerChannelStatus:
+        """Retrieve connected owner channel status from persistent state."""
+        with self.connection() as conn:
+            row = conn.execute("SELECT * FROM owner_channel WHERE id = 1").fetchone()
+            if not row:
+                return OwnerChannelStatus(is_connected=False)
+            scopes = []
+            if row["scopes_authorized_json"]:
+                try:
+                    scopes = json.loads(row["scopes_authorized_json"])
+                except Exception:
+                    scopes = []
+            return OwnerChannelStatus(
+                channel_id=row["channel_id"],
+                title=row["title"],
+                custom_url=row["custom_url"],
+                subscriber_count=row["subscriber_count"],
+                video_count=row["video_count"],
+                scopes_authorized=scopes,
+                is_connected=bool(row["is_connected"]),
+                connected_at=row["connected_at"],
+                last_verified_at=row["last_verified_at"],
+            )
+
+    def set_owner_channel_status(self, status: OwnerChannelStatus) -> None:
+        """Persist or update authenticated owner channel status."""
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO owner_channel (id, channel_id, title, custom_url, subscriber_count,
+                                           video_count, scopes_authorized_json, is_connected,
+                                           connected_at, last_verified_at)
+                VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    channel_id = excluded.channel_id,
+                    title = excluded.title,
+                    custom_url = excluded.custom_url,
+                    subscriber_count = excluded.subscriber_count,
+                    video_count = excluded.video_count,
+                    scopes_authorized_json = excluded.scopes_authorized_json,
+                    is_connected = excluded.is_connected,
+                    connected_at = excluded.connected_at,
+                    last_verified_at = excluded.last_verified_at
+                """,
+                (
+                    status.channel_id,
+                    status.title,
+                    status.custom_url,
+                    status.subscriber_count,
+                    status.video_count,
+                    json.dumps(status.scopes_authorized),
+                    1 if status.is_connected else 0,
+                    status.connected_at,
+                    status.last_verified_at,
+                ),
+            )
+
+    def clear_owner_channel_status(self) -> None:
+        """Disconnect owner channel in local state without deleting any remote YouTube data."""
+        with self.connection() as conn:
+            conn.execute("DELETE FROM owner_channel WHERE id = 1")
+
+    # --------------------------------------------------------------------------
     # Helper Serialization
     # --------------------------------------------------------------------------
+
 
     @staticmethod
     def _row_to_job(row: sqlite3.Row) -> Job:
@@ -421,6 +769,68 @@ class Database:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
+
+    @staticmethod
+    def _row_to_researched_video(row: sqlite3.Row) -> ResearchedVideo:
+        tags = []
+        if row["topic_tags_json"]:
+            try:
+                tags = json.loads(row["topic_tags_json"])
+            except Exception:
+                tags = []
+        return ResearchedVideo(
+            video_id=row["video_id"],
+            channel_id=row["channel_id"],
+            channel_title=row["channel_title"],
+            title=row["title"],
+            published_at=row["published_at"],
+            duration_sec=row["duration_sec"],
+            view_count=row["view_count"],
+            like_count=row["like_count"],
+            comment_count=row["comment_count"],
+            estimated_vph=row["estimated_vph"],
+            topic_tags=tags,
+            hook_summary=row["hook_summary"] or "",
+            created_at=row["created_at"],
+        )
+
+    @staticmethod
+    def _row_to_opportunity_analysis(row: sqlite3.Row) -> OpportunityAnalysis:
+        related_ids = []
+        signals = {}
+        observations = []
+        missing = []
+        risks = []
+        try:
+            if row["related_video_ids_json"]:
+                related_ids = json.loads(row["related_video_ids_json"])
+            if row["signals_json"]:
+                signals = json.loads(row["signals_json"])
+            if row["supporting_observations_json"]:
+                observations = json.loads(row["supporting_observations_json"])
+            if row["missing_evidence_json"]:
+                missing = json.loads(row["missing_evidence_json"])
+            if row["failure_risks_json"]:
+                risks = json.loads(row["failure_risks_json"])
+        except Exception:
+            pass
+
+        return OpportunityAnalysis(
+            id=row["id"],
+            topic=row["topic"],
+            primary_video_id=row["primary_video_id"],
+            related_video_ids=related_ids,
+            composite_score=row["composite_score"],
+            confidence=row["confidence"],
+            signals=signals,
+            supporting_observations=observations,
+            missing_evidence=missing,
+            failure_risks=risks,
+            suggested_angle=row["suggested_angle"],
+            factual_verification_notes=row["factual_verification_notes"] or "",
+            created_at=row["created_at"],
+        )
+
 
 
 # Global Database instance

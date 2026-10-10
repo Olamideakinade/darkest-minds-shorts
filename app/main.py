@@ -61,12 +61,17 @@ def cmd_health() -> int:
     total_jobs = sum(counts.values())
     print(f"  • Total Jobs in DB:   {total_jobs} ({counts.get(JobState.QUEUED.value, 0)} queued, {counts.get(JobState.READY.value, 0)} ready)")
 
-    # 6. Safety & External Channels
-    print("\n[6] EXTERNAL INTEGRATIONS & PUBLISHING SAFETY:")
-    print(f"  • YouTube Mode:       {config.youtube_publish_mode.upper()} (Default privacy: {config.youtube_default_privacy})")
-    print(f"  • YouTube API Key:    {'✓ Configured' if config.youtube_api_key else 'Not configured (Phase 2)'}")
-    print(f"  • Telegram Bot:       {'✓ Configured' if config.telegram_bot_token else 'Not configured (Phase 6)'}")
-    print(f"  • Spending Guard:     {'✓ ACTIVE (Paid APIs strictly disabled)' if not config.paid_apis_enabled else 'WARNING: Paid APIs enabled'}")
+    # 6. External Integrations & Channel Connection
+    from app.youtube.channel_manager import channel_manager
+    owner_status = channel_manager.get_connection_status()
+
+    print("\n[6] YOUTUBE INTEGRATIONS & PUBLISHING SAFETY:")
+    print(f"  • Owner YouTube Channel: {'✓ CONNECTED (' + owner_status.title + ')' if owner_status.is_connected else 'NOT CONNECTED (Will connect your existing channel via OAuth)'}")
+    print(f"  • Public Research API:   {'✓ Configured (Live YouTube Data API)' if config.youtube_api_key else 'Operating in Offline/Demo Mode (YouTube API key not set)'}")
+    print(f"  • Publishing Mode:       {config.youtube_publish_mode.upper()} (Default privacy: {config.youtube_default_privacy})")
+    print(f"  • Telegram Bot:          {'✓ Configured' if config.telegram_bot_token else 'Not configured (Phase 6)'}")
+    print(f"  • Spending Guard:        {'✓ ACTIVE (Paid APIs strictly disabled)' if not config.paid_apis_enabled else 'WARNING: Paid APIs enabled'}")
+
 
     # 7. Summary & Warnings
     print("\n" + "-" * 70)
@@ -157,6 +162,131 @@ def cmd_run() -> int:
     return 0
 
 
+def cmd_research(args: argparse.Namespace) -> int:
+    """Execute research, display reports, top opportunities, or inspect quota."""
+    from app.research.service import ResearchService
+    from app.research.youtube_client import YouTubeResearchClient
+    from app.database.models import CompetitorChannel
+
+    service = ResearchService()
+
+    # 1. Quota Inspection
+    if getattr(args, "quota", False):
+        client = YouTubeResearchClient()
+        guide = client.get_quota_guide()
+        print("=" * 70)
+        print(" YOUTUBE DATA API V3 — QUOTA TRACKING & BUDGETING")
+        print("=" * 70)
+        print(f"  • Date (UTC):               {guide['date_utc'] if 'date_utc' in guide else 'Today'}")
+        print(f"  • Estimated Units Used:     {guide['estimated_used_today']} units")
+        print(f"  • API Requests Made:        {guide['requests_made_today']} requests")
+        print(f"  • Standard Project Quota:   ~{guide['default_standard_quota']} units/day")
+        print("\nUnit Cost Reference:")
+        for ep, cost in guide["unit_costs"].items():
+            print(f"  • {ep:<25}: {cost} units")
+        print("\nHow to Verify Assigned Quota in Google Cloud:")
+        for step in guide["how_to_verify_quota"]:
+            print(f"  {step}")
+        print("=" * 70)
+        return 0
+
+    # 2. Competitor Channel Management
+    if getattr(args, "channels", False):
+        channels = db.list_competitor_channels()
+        print("=" * 70)
+        print(f" TRACKED COMPETITOR CHANNELS ({len(channels)} REGISTERED)")
+        print("=" * 70)
+        if not channels:
+            print("  No competitor channels registered yet.")
+            print("  To add one: ./run.sh research --add-channel <channel_id> \"<channel_title>\"")
+        else:
+            for ch in channels:
+                print(f"  • [{ch.channel_id}] {ch.title} — {ch.subscriber_count:,} subs, {ch.total_videos:,} videos")
+        print("=" * 70)
+        return 0
+
+    if getattr(args, "add_channel", None):
+        ch_id = args.add_channel[0]
+        ch_title = args.add_channel[1] if len(args.add_channel) > 1 else "Competitor Channel"
+        db.add_competitor_channel(CompetitorChannel(channel_id=ch_id, title=ch_title))
+        print(f"✓ Registered competitor channel: {ch_title} ({ch_id})")
+        return 0
+
+    # 3. Existing Report View
+    if getattr(args, "report", False):
+        print(service.get_latest_report())
+        return 0
+
+    # 4. Top Opportunities View
+    if getattr(args, "top_opportunities", False):
+        opps = service.list_top_opportunities(limit=10)
+        if not opps:
+            print("No opportunities evaluated yet. Run: ./run.sh research --query \"strange history\"")
+            return 0
+        print("=" * 70)
+        print(f" TOP RANKED STORY OPPORTUNITIES ({len(opps)} AVAILABLE)")
+        print("=" * 70)
+        for idx, o in enumerate(opps, start=1):
+            print(f"\n#{idx}. \"{o.topic}\" — Score: {o.composite_score}/100 [{o.confidence} CONFIDENCE]")
+            print(f"    • Angle: {o.suggested_angle}")
+            for obs in o.supporting_observations[:2]:
+                print(f"    • Evidence: {obs}")
+            for gap in o.missing_evidence[:1]:
+                print(f"    • Gap: {gap}")
+        print("=" * 70)
+        return 0
+
+    # 5. Run Live or Demo Research Query
+    query = getattr(args, "query", None)
+    res = service.run_research(query=query, max_videos=15, use_demo_if_unconfigured=True)
+    if res.get("report_text"):
+        print(res["report_text"])
+    return 0 if res.get("success") else 1
+
+
+def cmd_channel_status() -> int:
+    """Display connection status and identity for the owner's existing YouTube channel."""
+    from app.youtube.channel_manager import channel_manager
+
+    status = channel_manager.get_connection_status()
+    setup_info = channel_manager.generate_setup_instructions()
+
+    print("=" * 70)
+    print(" MHIDE STORY INTELLIGENCE — OWNER YOUTUBE CHANNEL STATUS")
+    print("=" * 70)
+
+    print("\n[1] CHANNEL IDENTITY & CONNECTION:")
+    if status.is_connected:
+        print(f"  • Status:               ✓ CONNECTED")
+        print(f"  • Channel Title:        {status.title or 'Authenticated Channel'}")
+        print(f"  • Channel ID:           {status.channel_id or 'Authorized via local token'}")
+        if status.custom_url:
+            print(f"  • Handle / Custom URL:  {status.custom_url}")
+        print(f"  • Subscribers:          {status.subscriber_count:,}")
+        print(f"  • Total Videos:         {status.video_count:,}")
+        print(f"  • Authorized Scopes:    {', '.join(status.scopes_authorized) if status.scopes_authorized else 'Standard access'}")
+    else:
+        print("  • Status:               NOT CONNECTED (Phase 7)")
+        print("  • Owner Channel:        Existing channel will connect via official Google OAuth 2.0 flow.")
+
+    print("\n[2] PUBLISHING & PRIVACY GUARDS:")
+    print(f"  • Publishing Mode:      {config.youtube_publish_mode.upper()} (Default visibility: {config.youtube_default_privacy})")
+    print("  • Safety Lock:          No uploads or channel modifications occur until explicitly approved.")
+    print("  • Research Separation:  Public competitor research operates separately via YouTube Data API.")
+
+    print("\n[3] LOCAL CREDENTIALS STATE:")
+    print(f"  • Client Secrets File:  {setup_info['client_secrets_path']} ({'✓ Present' if setup_info['client_secrets_found'] else 'Not found'})")
+    print(f"  • OAuth Token File:     {setup_info['token_path']} ({'✓ Present' if setup_info['token_found'] else 'Not generated yet'})")
+
+    if not status.is_connected:
+        print("\n[4] SECURE LOCAL SETUP WALKTHROUGH:")
+        print("  (Never paste secrets or credentials into chat. Setup is 100% local.)")
+        for step in setup_info["instructions"]:
+            print(f"  {step}")
+    print("=" * 70)
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Mhide Story Intelligence — Autonomous YouTube Shorts Agent")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -168,6 +298,16 @@ def main() -> None:
     subparsers.add_parser("test-tts", help="Generate a sample voiceover audio clip")
     subparsers.add_parser("enqueue-test", help="Enqueue a test story job")
     subparsers.add_parser("run", help="Process queued jobs through orchestrator")
+    subparsers.add_parser("channel-status", help="Display owner channel connection status and OAuth permissions")
+
+    # Research Subcommand
+    research_parser = subparsers.add_parser("research", help="YouTube competitor and trend intelligence research")
+    research_parser.add_argument("--query", type=str, help="Search query for topic research")
+    research_parser.add_argument("--report", action="store_true", help="Display current research report")
+    research_parser.add_argument("--top-opportunities", action="store_true", help="Display top ranked story opportunities")
+    research_parser.add_argument("--quota", action="store_true", help="Display YouTube API quota usage and guidance")
+    research_parser.add_argument("--channels", action="store_true", help="List tracked competitor channels")
+    research_parser.add_argument("--add-channel", nargs="+", help="Add a competitor channel: <id> [title]")
 
     args = parser.parse_args()
 
@@ -176,7 +316,6 @@ def main() -> None:
     elif args.command == "status":
         sys.exit(cmd_status())
     elif args.command == "init-db":
-        # Database initializes automatically upon import of db
         print(f"Database initialized at: {config.db_path}")
         sys.exit(0)
     elif args.command == "test-llm":
@@ -187,6 +326,10 @@ def main() -> None:
         sys.exit(cmd_enqueue_test())
     elif args.command == "run":
         sys.exit(cmd_run())
+    elif args.command == "channel-status":
+        sys.exit(cmd_channel_status())
+    elif args.command == "research":
+        sys.exit(cmd_research(args))
     else:
         # Default to health check if no command specified
         sys.exit(cmd_health())
@@ -194,3 +337,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
