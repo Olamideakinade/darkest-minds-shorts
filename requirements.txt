@@ -1,0 +1,25 @@
+# Mhide Story Intelligence — Core Dependencies
+# Python 3.11 - 3.14 compatible
+
+# Core networking & async HTTP
+aiohttp>=3.10.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+
+# Natural Local TTS Voiceover Engine (100% Free, zero-cost, neural speech)
+edge-tts>=7.2.0
+
+# Media & Image Processing
+pillow>=10.0.0
+
+# YouTube Data API v3 & OAuth 2.0 Integration
+google-api-python-client>=2.150.0
+google-auth-oauthlib>=1.2.0
+google-auth-httplib2>=0.2.0
+
+# Telegram Control Room Bot
+python-telegram-bot>=21.0
+
+# Testing & Utilities
+pytest>=8.0.0
+tabulate>=0.9.0

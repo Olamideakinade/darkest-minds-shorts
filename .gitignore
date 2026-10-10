@@ -1,0 +1,67 @@
+# Environment & Secrets
+.env
+*.env
+client_secrets*.json
+token*.json
+credentials/
+
+# Python & Virtualenv
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing & Linting
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Local Database & State
+*.db
+*.sqlite3
+data/*.db
+data/*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# Media Assets & Temporary Output
+output/
+data/cache/
+data/temp/
+*.mp4
+*.wav
+*.mp3
+*.png
+*.jpg
+*.jpeg
+*.srt
+*.ass
+
+# macOS System Files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*

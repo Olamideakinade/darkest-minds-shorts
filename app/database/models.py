@@ -1,0 +1,180 @@
+"""Data models and schemas for Mhide Story Intelligence."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, Dict, List, Optional
+import uuid
+
+
+def utc_now_iso() -> str:
+    """Return current UTC time in ISO 8601 format."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+class JobState(str, Enum):
+    """Explicit job lifecycle states."""
+    QUEUED = "QUEUED"
+    RESEARCHING = "RESEARCHING"
+    SCRIPTING = "SCRIPTING"
+    NARRATING = "NARRATING"
+    ASSEMBLING = "ASSEMBLING"
+    QA = "QA"
+    READY = "READY"
+    UPLOADING = "UPLOADING"
+    PUBLISHED = "PUBLISHED"
+    FAILED = "FAILED"
+    RETRYING = "RETRYING"
+    CANCELLED = "CANCELLED"
+    NEEDS_REVIEW = "NEEDS_REVIEW"
+
+
+@dataclass
+class Job:
+    """Core production job record."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    title: str = ""
+    niche: str = "Strange History & Unsolved Mysteries"
+    state: JobState = JobState.QUEUED
+    current_stage: str = "init"
+    payload: Dict[str, Any] = field(default_factory=dict)
+    error_message: Optional[str] = None
+    retry_count: int = 0
+    max_retries: int = 3
+    lock_token: Optional[str] = None
+    locked_at: Optional[str] = None
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        d = asdict(self)
+        d["state"] = self.state.value if isinstance(self.state, JobState) else self.state
+        return d
+
+
+@dataclass
+class CompetitorChannel:
+    channel_id: str
+    title: str
+    subscriber_count: int = 0
+    total_videos: int = 0
+    tracked_since: str = field(default_factory=utc_now_iso)
+    last_analyzed_at: Optional[str] = None
+
+
+@dataclass
+class ResearchedVideo:
+    video_id: str
+    channel_id: str
+    channel_title: str
+    title: str
+    published_at: str
+    duration_sec: int = 0
+    view_count: int = 0
+    like_count: int = 0
+    comment_count: int = 0
+    estimated_vph: float = 0.0
+    topic_tags: List[str] = field(default_factory=list)
+    hook_summary: str = ""
+    created_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
+class StoryIdea:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    job_id: Optional[str] = None
+    topic: str = ""
+    angle: str = ""
+    score: float = 0.0
+    rationale: str = ""
+    source_urls: List[str] = field(default_factory=list)
+    status: str = "CANDIDATE"  # CANDIDATE, APPROVED, REJECTED, PRODUCED
+    created_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
+class ScriptRecord:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    job_id: str = ""
+    idea_id: Optional[str] = None
+    hook_text: str = ""
+    body_text: str = ""
+    payoff_text: str = ""
+    full_text: str = ""
+    word_count: int = 0
+    estimated_duration_sec: float = 0.0
+    factual_verification_status: str = "UNVERIFIED"  # UNVERIFIED, VERIFIED, SPECULATIVE
+    factual_notes: str = ""
+    created_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
+class MediaAsset:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    job_id: str = ""
+    asset_type: str = "video"  # audio, video, image, subtitle, music
+    file_path: str = ""
+    duration_sec: float = 0.0
+    license_info: str = "Original / CC0"
+    created_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
+class QualityReport:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    job_id: str = ""
+    status: str = "PASS"  # PASS, WARNING, FAIL
+    checks: Dict[str, Any] = field(default_factory=dict)
+    issues: List[str] = field(default_factory=list)
+    created_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
+class PublishedVideo:
+    video_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    job_id: str = ""
+    youtube_id: str = ""
+    title: str = ""
+    description: str = ""
+    privacy_status: str = "private"
+    youtube_url: str = ""
+    published_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
+class AnalyticsSnapshot:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    youtube_id: str = ""
+    views: int = 0
+    likes: int = 0
+    comments: int = 0
+    watch_time_sec: float = 0.0
+    average_view_duration_sec: float = 0.0
+    retention_pct: float = 0.0
+    subscribers_gained: int = 0
+    recorded_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
+class Experiment:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    name: str = ""
+    hypothesis: str = ""
+    variable_name: str = ""
+    variant_value: str = ""
+    outcome_metric: str = ""
+    outcome_notes: str = ""
+    created_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
+class SystemEvent:
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    event_type: str = "INFO"
+    level: str = "INFO"
+    message: str = ""
+    details: Dict[str, Any] = field(default_factory=dict)
+    created_at: str = field(default_factory=utc_now_iso)
