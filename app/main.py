@@ -256,46 +256,206 @@ def cmd_research(args: argparse.Namespace) -> int:
 
 
 def cmd_channel_status() -> int:
-    """Display connection status and identity for the owner's existing YouTube channel."""
-    from app.youtube.channel_manager import channel_manager
+    """Display comprehensive status, granted vs missing OAuth scopes, and capabilities of the owner channel."""
+    from app.youtube.channel_manager import (
+        SCOPE_CAPABILITIES,
+        YOUTUBE_MANAGEMENT_SCOPES,
+        channel_manager,
+    )
 
     status = channel_manager.get_connection_status()
     setup_info = channel_manager.generate_setup_instructions()
+    granted_scopes = channel_manager.get_granted_scopes()
 
-    print("=" * 70)
-    print(" MHIDE STORY INTELLIGENCE — OWNER YOUTUBE CHANNEL STATUS")
-    print("=" * 70)
+    print("=" * 75)
+    print(" MHIDE STORY INTELLIGENCE — OWNER YOUTUBE CHANNEL AUDIT & STATUS")
+    print("=" * 75)
 
-    print("\n[1] CHANNEL IDENTITY & CONNECTION:")
-    if status.is_connected:
-        print(f"  • Status:               ✓ CONNECTED")
-        print(f"  • Channel Title:        {status.title or 'Authenticated Channel'}")
-        print(f"  • Channel ID:           {status.channel_id or 'Authorized via local token'}")
+    print("\n[1] CHANNEL IDENTITY:")
+    if status.is_connected and status.channel_id:
+        print(f"  • Connection Status:    ✓ CONNECTED")
+        print(f"  • Channel Title:        {status.title}")
+        print(f"  • Channel ID:           {status.channel_id}")
         if status.custom_url:
             print(f"  • Handle / Custom URL:  {status.custom_url}")
         print(f"  • Subscribers:          {status.subscriber_count:,}")
         print(f"  • Total Videos:         {status.video_count:,}")
-        print(f"  • Authorized Scopes:    {', '.join(status.scopes_authorized) if status.scopes_authorized else 'Standard access'}")
+        print(f"  • Last Verified:        {status.last_verified_at or 'Recently'}")
+    elif status.is_connected:
+        print("  • Connection Status:    ✓ TOKEN PRESENT (Verification pending)")
     else:
-        print("  • Status:               NOT CONNECTED (Phase 7)")
+        print("  • Connection Status:    ✗ NOT CONNECTED")
         print("  • Owner Channel:        Existing channel will connect via official Google OAuth 2.0 flow.")
 
-    print("\n[2] PUBLISHING & PRIVACY GUARDS:")
-    print(f"  • Publishing Mode:      {config.youtube_publish_mode.upper()} (Default visibility: {config.youtube_default_privacy})")
-    print("  • Safety Lock:          No uploads or channel modifications occur until explicitly approved.")
-    print("  • Research Separation:  Public competitor research operates separately via YouTube Data API.")
+    print("\n[2] OAUTH SCOPES & CAPABILITY AUDIT:")
+    is_fully_scoped = channel_manager.is_fully_scoped()
+    if granted_scopes:
+        for scope in YOUTUBE_MANAGEMENT_SCOPES:
+            desc = SCOPE_CAPABILITIES.get(scope, "YouTube resource access")
+            if scope in granted_scopes:
+                print(f"  [✓ GRANTED]     {scope}")
+                print(f"                  └─ {desc}")
+            else:
+                print(f"  [✗ NOT GRANTED] {scope}")
+                print(f"                  └─ {desc}")
 
-    print("\n[3] LOCAL CREDENTIALS STATE:")
+        if is_fully_scoped:
+            print("\n  • Capability Tier:      COMPREHENSIVE CHANNEL MANAGEMENT (All scopes granted)")
+        else:
+            print("\n  • Capability Tier:      PARTIAL ACCESS (Some management scopes not granted)")
+            print("  • Upgrade Action:       Run './run.sh youtube --reconnect' to grant full management scopes.")
+    else:
+        print("  • No active OAuth scopes found in local token.")
+
+    print("\n[3] SUPPORTED OFFICIAL OPERATIONS:")
+    print("  • Video Metadata:       Supported (titles, descriptions, tags, category, visibility via videos.update)")
+    print("  • Playlist Management:  Supported (create, update, and add videos to playlists)")
+    print("  • Custom Thumbnails:    Supported (via thumbnails.set, requires phone-verified channel)")
+    print("  • Channel Analytics:    Supported (views, watch time, retention, subscribers via reports.query)")
+    print("  • Monitized Analytics:  Supported if monetized (via yt-analytics-monetary.readonly)")
+
+    print("\n[4] OFFICIAL API BOUNDARIES & LIMITATIONS:")
+    print("  • Channel Handle/URL:   Not changeable via API (Must configure in YouTube Studio)")
+    print("  • Channel Name:         Not changeable via Data API v3 (Configured via Google Account/Studio)")
+    print("  • Copyright & Strikes:  Web UI only (Must review in YouTube Studio)")
+
+    print("\n[5] PUBLISHING & SAFETY GUARDS:")
+    print(f"  • Publishing Mode:      {config.youtube_publish_mode.upper()} (Default visibility: {config.youtube_default_privacy})")
+    print("  • Safety Lock:          Active — No uploads, edits, or changes occur autonomously without approval.")
+    print("  • Destructive Deletion: Strictly blocked — Autonomous video or playlist deletion is prohibited.")
+
+    print("\n[6] LOCAL CREDENTIALS STATE:")
     print(f"  • Client Secrets File:  {setup_info['client_secrets_path']} ({'✓ Present' if setup_info['client_secrets_found'] else 'Not found'})")
     print(f"  • OAuth Token File:     {setup_info['token_path']} ({'✓ Present' if setup_info['token_found'] else 'Not generated yet'})")
 
-    if not status.is_connected:
-        print("\n[4] SECURE LOCAL SETUP WALKTHROUGH:")
-        print("  (Never paste secrets or credentials into chat. Setup is 100% local.)")
-        for step in setup_info["instructions"]:
-            print(f"  {step}")
-    print("=" * 70)
+    if not status.is_connected or not is_fully_scoped:
+        print("\n[7] NEXT STEPS:")
+        if not status.is_connected:
+            print("  • Run: ./run.sh youtube --connect (or ./run.sh auth-youtube) to authorize your channel.")
+        elif not is_fully_scoped:
+            print("  • Run: ./run.sh youtube --reconnect (or ./run.sh reauth-youtube) to reauthorize with full scopes.")
+            print("  • To reset the token only: ./run.sh youtube --disconnect (or ./run.sh reset-token).")
+    print("=" * 75)
     return 0
+
+
+def cmd_audit_capabilities() -> int:
+    """Execute and display a comprehensive read-only live capability audit against official YouTube APIs."""
+    from app.youtube.channel_manager import channel_manager
+
+    print("=" * 75)
+    print(" MHIDE STORY INTELLIGENCE — LIVE YOUTUBE API CAPABILITY AUDIT")
+    print("=" * 75)
+    print("Executing safe read-only API calls against Google's live YouTube servers...\n")
+
+    audit = channel_manager.audit_live_capabilities()
+
+    # 1. Channel Identity
+    cid = audit.get("channel_identity", {})
+    print("[1] LIVE CHANNEL IDENTITY:")
+    if cid.get("live_verified"):
+        print(f"  • Live Status:          ✓ VERIFIED WITH LIVE YOUTUBE API")
+        print(f"  • Channel Title:        {cid.get('title')}")
+        print(f"  • Channel ID:           {cid.get('channel_id')}")
+        if cid.get("custom_url"):
+            print(f"  • Custom URL / Handle:  {cid.get('custom_url')}")
+        print(f"  • Subscribers:          {cid.get('subscribers', 0):,}")
+        print(f"  • Total Videos:         {cid.get('video_count', 0):,}")
+        print(f"  • Channel Total Views:  {cid.get('view_count', 0):,}")
+    else:
+        print("  • Live Status:          ✗ UNABLE TO RETRIEVE CHANNEL IDENTITY")
+        print(f"  • Error:                {audit.get('live_tested_operations', {}).get('channel_verification', {}).get('error')}")
+
+    # 2. Live-Tested Read Operations
+    print("\n[2] LIVE-TESTED READ OPERATIONS (PROVEN AGAINST LIVE GOOGLE APIS):")
+    live_ops = audit.get("live_tested_operations", {})
+
+    # Playlists
+    pl_info = live_ops.get("playlist_listing", {})
+    pl_status = "✓ PASS" if pl_info.get("status") == "PASS" else "✗ FAIL"
+    print(f"  • Playlists Query:      {pl_status} ({pl_info.get('api')})")
+    print(f"    └─ Result:            {pl_info.get('message', 'No message')}")
+    if pl_info.get("items"):
+        for p in pl_info["items"][:5]:
+            print(f"       - '{p['title']}' ({p['item_count']} items, {p['privacy']})")
+
+    # Videos
+    vid_info = live_ops.get("video_listing", {})
+    vid_status = "✓ PASS" if vid_info.get("status") == "PASS" else "✗ FAIL"
+    print(f"  • Uploaded Videos:      {vid_status} ({vid_info.get('api')})")
+    print(f"    └─ Result:            {vid_info.get('message', 'No message')}")
+    if vid_info.get("items"):
+        for v in vid_info["items"][:5]:
+            print(f"       - '{v['title']}' (ID: {v['id']}, published: {v['published_at']})")
+
+    # Analytics
+    an_info = live_ops.get("analytics_reporting", {})
+    an_status = "✓ PASS" if an_info.get("status") == "PASS" else "✗ FAIL"
+    print(f"  • Analytics Reporting:  {an_status} ({an_info.get('api')})")
+    if an_info.get("status") == "PASS":
+        print(f"    └─ Query Range:       {an_info.get('date_range')}")
+        print(f"    └─ Metrics Queried:   {', '.join(an_info.get('headers', []))}")
+        print(f"    └─ Data State:        {an_info.get('sample_data')}")
+    else:
+        print(f"    └─ API Note/Error:    {an_info.get('error')}")
+
+    # 3. Untested Mutating Operations (Clearly Separated)
+    print("\n[3] UNTESTED MUTATING OPERATIONS (CODE-VERIFIED ONLY; SAFELY UNMUTATED):")
+    mut_ops = audit.get("untested_mutating_operations", {})
+    for op_name, op_details in mut_ops.items():
+        scope_str = "✓ Scope Granted" if op_details.get("scope_granted") else "N/A"
+        print(f"  • {op_name.replace('_', ' ').title()}:")
+        print(f"    └─ API:               {op_details.get('api', 'Internal Safety Guard')}")
+        print(f"    └─ State:             {op_details.get('status')} ({scope_str})")
+        print(f"    └─ Policy:            {op_details.get('note')}")
+
+    # 4. Quotas & Boundaries
+    print("\n[4] OFFICIAL API QUOTAS & REALISTIC BOUNDARIES:")
+    quotas = audit.get("api_quotas_and_limitations", {})
+    print(f"  • Daily Default Quota:  {quotas.get('daily_default_quota')}")
+    for k, v in quotas.get("operations_cost", {}).items():
+        print(f"    - {k.replace('_', ' ').title()}: {v}")
+    print("  • Technical Limitations:")
+    for b in quotas.get("known_api_boundaries", []):
+        print(f"    - {b}")
+
+    print("\n[5] AUDIT CONCLUSION:")
+    print(f"  • Overall Status:       {audit.get('overall_status')}")
+    print("  • Zero modifications, uploads, or deletions were performed.")
+    print("=" * 75)
+
+    # Save to disk as audit artifact
+    audit_file = config.base_dir / "output" / "youtube_capability_audit.json"
+    audit_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(audit_file, "w", encoding="utf-8") as f:
+        json.dump(audit, f, indent=2)
+
+    return 0
+
+
+def cmd_youtube(args: argparse.Namespace) -> int:
+    """Manage owner YouTube channel OAuth connection, reconnection, reset, and status."""
+    from app.youtube.channel_manager import channel_manager
+
+    if getattr(args, "audit", False):
+        return cmd_audit_capabilities()
+    elif getattr(args, "reconnect", False):
+        print("Starting reauthorization for comprehensive channel management...")
+        success, msg, status = channel_manager.reauthorize_in_browser()
+        print(f"\nResult: {msg}")
+        return 0 if success else 1
+    elif getattr(args, "connect", False):
+        print("Starting official browser OAuth 2.0 flow for your YouTube channel...")
+        success, msg, status = channel_manager.authenticate_in_browser()
+        print(f"\nResult: {msg}")
+        return 0 if success else 1
+    elif getattr(args, "disconnect", False):
+        channel_manager.disconnect_channel(remove_token_only=True)
+        print("Owner YouTube channel token removed locally. Client secrets preserved.")
+        return 0
+    else:
+        # Default to displaying channel status
+        return cmd_channel_status()
 
 
 def cmd_autonomous_cycle() -> int:
@@ -415,6 +575,71 @@ def cmd_test_story(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_produce(args: argparse.Namespace) -> int:
+    """Run an end-to-end production run for a story and render a complete vertical Short MP4."""
+    from app.orchestrator import Orchestrator
+    from app.database.models import JobState
+
+    topic = getattr(args, "topic", None) or "The 1911 Mona Lisa Broom Closet Heist"
+    print("=" * 70)
+    print(" MHIDE STORY INTELLIGENCE — AUTONOMOUS SHORTS PRODUCTION PIPELINE")
+    print("=" * 70)
+    print(f"Target Story Topic: {topic}\n")
+
+    orch = Orchestrator()
+    job = orch.enqueue_job(
+        title=topic,
+        niche="Strange History & Unsolved Mysteries",
+        payload={
+            "topic": topic,
+            "angle": "The audacious 1911 Louvre heist that turned Leonardo's portrait into a global icon",
+            "category": "strange_history",
+        },
+    )
+    print(f"Enqueued Production Job: {job.id} (Initial state: {job.state.value})")
+    print("Stepping through end-to-end production lifecycle...")
+
+    final_job = orch.process_next_job()
+    if not final_job or final_job.id != job.id:
+        print(f"Error: Job {job.id} was not processed or failed to claim.")
+        return 1
+
+    payload = final_job.payload or {}
+    video_path = payload.get("video_path")
+
+    print("\n" + "=" * 70)
+    print(" PRODUCTION PIPELINE SUMMARY")
+    print("=" * 70)
+    print(f"  • Job ID:              {final_job.id}")
+    print(f"  • Title:               {final_job.title}")
+    print(f"  • Lifecycle State:     {final_job.state.value} (Stage: {final_job.current_stage})")
+
+    if final_job.state in (JobState.READY, JobState.PUBLISHED) and video_path:
+        size_mb = payload.get("video_size_bytes", 0) / (1024 * 1024)
+        print(f"  • Execution Status:    ✓ SUCCESS (Verified Ready for Channel)")
+        print(f"  • Final Output MP4:    {video_path}")
+        print(f"  • Video Duration:      {payload.get('video_duration', 0):.2f} seconds")
+        print(f"  • Resolution:          {payload.get('video_resolution', '1080x1920')}")
+        print(f"  • Video File Size:     {size_mb:.2f} MB")
+        print(f"  • Narration Audio:     {payload.get('audio_path')}")
+        print(f"  • Voice Provider:      {payload.get('audio_provider')} ({payload.get('audio_voice')})")
+        print(f"  • Captions File:       {payload.get('srt_path')}")
+        print(f"  • Scenes Assembled:    {payload.get('scenes_rendered', 0)} editorial scenes")
+        print(f"  • QA Verification:     {payload.get('qa_status', 'UNKNOWN')}")
+        previews = payload.get("preview_frames", [])
+        if previews:
+            print(f"  • Representative Frames ({len(previews)} extracted):")
+            for pf in previews:
+                print(f"     - {pf}")
+        print("=" * 70)
+        return 0
+    else:
+        print(f"  • Execution Status:    ✗ FAILED / INCOMPLETE")
+        print(f"  • Error Message:       {final_job.error_message or 'Unknown pipeline failure'}")
+        print("=" * 70)
+        return 1
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Mhide Story Intelligence — Autonomous YouTube Shorts Channel Operator")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -445,6 +670,22 @@ def main() -> None:
     story_parser = subparsers.add_parser("story", help="Generate a test 3-Act original story with factual verification")
     story_parser.add_argument("--topic", type=str, help="Topic for story generation")
 
+    produce_parser = subparsers.add_parser("produce", help="Run end-to-end production of a completed YouTube Short MP4")
+    produce_parser.add_argument("--topic", type=str, help="Topic for autonomous production")
+
+    # YouTube OAuth Subcommands
+    yt_parser = subparsers.add_parser("youtube", help="Manage owner YouTube channel OAuth authorization and status")
+    yt_parser.add_argument("--connect", action="store_true", help="Authorize your existing YouTube channel via system browser")
+    yt_parser.add_argument("--reconnect", action="store_true", help="Reauthorize channel in browser with comprehensive management scopes (replaces existing token)")
+    yt_parser.add_argument("--disconnect", action="store_true", help="Locally disconnect owner YouTube channel (removes token only; preserves client secrets)")
+    yt_parser.add_argument("--status", action="store_true", help="Show current connection status and permissions")
+    yt_parser.add_argument("--audit", action="store_true", help="Execute read-only live YouTube API capability audit")
+
+    subparsers.add_parser("auth-youtube", help="Authorize your existing YouTube channel via system browser (direct alias)")
+    subparsers.add_parser("reauth-youtube", help="Reauthorize channel in browser with full management scopes (direct alias)")
+    subparsers.add_parser("reset-token", help="Reset/remove local OAuth token without deleting client secrets (direct alias)")
+    subparsers.add_parser("audit-youtube", help="Execute read-only live YouTube API capability audit (direct alias)")
+
     # Research Subcommand
     research_parser = subparsers.add_parser("research", help="YouTube competitor and trend intelligence research")
     research_parser.add_argument("--query", type=str, help="Search query for topic research")
@@ -473,6 +714,19 @@ def main() -> None:
         sys.exit(cmd_run())
     elif args.command == "channel-status":
         sys.exit(cmd_channel_status())
+    elif args.command == "youtube":
+        sys.exit(cmd_youtube(args))
+    elif args.command == "auth-youtube":
+        setattr(args, "connect", True)
+        sys.exit(cmd_youtube(args))
+    elif args.command == "reauth-youtube":
+        setattr(args, "reconnect", True)
+        sys.exit(cmd_youtube(args))
+    elif args.command == "reset-token":
+        setattr(args, "disconnect", True)
+        sys.exit(cmd_youtube(args))
+    elif args.command == "audit-youtube":
+        sys.exit(cmd_audit_capabilities())
     elif args.command == "research":
         sys.exit(cmd_research(args))
     elif args.command == "cycle":
@@ -489,6 +743,8 @@ def main() -> None:
         sys.exit(cmd_decisions(args))
     elif args.command == "story":
         sys.exit(cmd_test_story(args))
+    elif args.command == "produce":
+        sys.exit(cmd_produce(args))
     else:
         # Default to health check if no command specified
         sys.exit(cmd_health())

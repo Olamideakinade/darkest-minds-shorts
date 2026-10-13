@@ -1,0 +1,15 @@
+{
+  "music_track": {
+    "filename": "background.mp3",
+    "title": "Gymnopédies: 1ère - Lent et douloureux",
+    "composer": "Erik Satie (1866–1925)",
+    "performer": "Robin Alciatore",
+    "license": "Public Domain (Work published 1888, performance dedicated to Public Domain)",
+    "source_url": "https://commons.wikimedia.org/wiki/File:Erik_Satie_-_gymnopedies_-_la_1_ere._lent_et_douloureux.ogg",
+    "mix_settings": {
+      "ducking_volume": 0.12,
+      "ducking_db": "-18.4 dB",
+      "fade_out_sec": 2.5
+    }
+  }
+}

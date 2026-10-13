@@ -1,0 +1,58 @@
+[
+  {
+    "filename": "01_salon_carre_louvre.jpg",
+    "file_path": "data/curated_assets/mona_lisa_1911/01_salon_carre_louvre.jpg",
+    "title": "View of the Salon Carr\u00e9 at the Louvre (Alexandre Brun, 1911)",
+    "author": "Alexandre Jean-Baptiste Brun (1853\u20131941)",
+    "license": "Public Domain (Pre-1928, artist died >70y ago)",
+    "provenance": "Mus\u00e9e du Louvre collection / Wikimedia Commons"
+  },
+  {
+    "filename": "05_mona_lisa_le_petit_journal.jpg",
+    "file_path": "data/curated_assets/mona_lisa_1911/05_mona_lisa_le_petit_journal.jpg",
+    "title": "Le Petit Journal - La Joconde a disparu du Louvre (August 1911)",
+    "author": "Le Petit Journal editorial staff (1911)",
+    "license": "Public Domain (French press publication 1911, expired copyright)",
+    "provenance": "Biblioth\u00e8que nationale de France / Wikimedia Commons"
+  },
+  {
+    "filename": "06_excelsior_theft_coverage.jpg",
+    "file_path": "data/curated_assets/mona_lisa_1911/06_excelsior_theft_coverage.jpg",
+    "title": "L'Excelsior - Vincenzo Peruggia et le Vol de La Joconde",
+    "author": "L'Excelsior French daily newspaper (1911/1913)",
+    "license": "Public Domain (French press publication, expired copyright)",
+    "provenance": "Biblioth\u00e8que nationale de France / Wikimedia Commons"
+  },
+  {
+    "filename": "07_mona_lisa_masterpiece.jpg",
+    "file_path": "data/curated_assets/mona_lisa_1911/07_mona_lisa_masterpiece.jpg",
+    "title": "Portrait of Lisa Gherardini (Mona Lisa) by Leonardo da Vinci",
+    "author": "Leonardo da Vinci (c. 1503\u20131519)",
+    "license": "Public Domain (Renaissance artwork c. 1503)",
+    "provenance": "Mus\u00e9e du Louvre / Center for Research and Restoration of the Museums of France (C2RMF)"
+  },
+  {
+    "filename": "02_empty_wall_louvre_1911.jpg",
+    "file_path": "data/curated_assets/mona_lisa_1911/02_empty_wall_louvre_1911.jpg",
+    "title": "The empty wall at the Louvre after the theft of the Mona Lisa (August 1911)",
+    "author": "Agence Rol / Archival Press",
+    "license": "Public Domain (Published 1911 in France, expired copyright)",
+    "provenance": "Biblioth\u00e8que nationale de France / Wikimedia Commons"
+  },
+  {
+    "filename": "03_vincenzo_peruggia_mugshot.jpg",
+    "file_path": "data/curated_assets/mona_lisa_1911/03_vincenzo_peruggia_mugshot.jpg",
+    "title": "Vincenzo Peruggia Bertillon police identification photograph and record",
+    "author": "Service de l'Identit\u00e9 Judiciaire, Pr\u00e9fecture de Police de Paris (Alphonse Bertillon)",
+    "license": "Public Domain (Official French police identification photograph, 1911)",
+    "provenance": "Archives de la Pr\u00e9fecture de Police de Paris / Wikimedia Commons"
+  },
+  {
+    "filename": "04_louis_beroud_louvre.jpg",
+    "file_path": "data/curated_assets/mona_lisa_1911/04_louis_beroud_louvre.jpg",
+    "title": "Mona Lisa au Louvre (Louis B\u00e9roud, 1911)",
+    "author": "Louis B\u00e9roud (1852\u20131930)",
+    "license": "Public Domain (Created 1911, artist died 1930)",
+    "provenance": "Mus\u00e9e Carnavalet / Wikimedia Commons"
+  }
+]

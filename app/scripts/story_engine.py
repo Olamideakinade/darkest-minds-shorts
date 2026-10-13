@@ -190,13 +190,15 @@ class StoryEngine:
 
     def _build_deterministic_script(self, topic: str, angle: str, category: str) -> Dict[str, Any]:
         """Deterministic high-retention script crafted to adhere strictly to YouTube retention principles."""
-        if "Mona Lisa" in topic or "Heist" in topic:
-            hook = "In August 1911, the world's most famous painting vanished, and for twenty-four hours, nobody even noticed."
+        if "Mona Lisa" in topic or "Heist" in topic or "Louvre" in topic:
+            hook = "In August 1911, the world's most famous painting vanished from the Louvre, and for twenty-four hours, nobody even noticed."
             escalation = (
-                "Vincenzo Peruggia, a former Louvre handyman, hid inside a broom closet until the museum locked its iron gates. "
-                "At sunrise, he peeled the Mona Lisa from its frame, walked into the Paris rain, and kept the masterpiece hidden under his floorboards for two years."
+                "On a quiet Monday when the museum was closed, Vincenzo Peruggia slipped inside wearing a white workman's smock. "
+                "A former glazier who fitted the protective glass, he unhooked the portrait, stripped the frame in the Visconti stairwell, and walked onto the streets of Paris. "
+                "Guards assumed it was at the photo studio, until painter Louis Béroud found four empty pegs on Tuesday morning. "
+                "For two years, police were baffled while the masterpiece sat in a wooden trunk inside Peruggia's Paris room."
             )
-            payoff = "Before the heist, the painting was barely celebrated. Vincenzo didn't just steal the Mona Lisa—he made it legendary."
+            payoff = "When it was finally recovered in Florence, the global frenzy didn't just return the Mona Lisa—it made it the most famous face on Earth."
         elif "Voynich" in topic or "Manuscript" in topic:
             hook = "In 1912, an antique book dealer opened a sealed chest in an Italian villa and found a book written in no human tongue."
             escalation = (

@@ -133,6 +133,7 @@ class Database:
         stage: Optional[str] = None,
         error_message: Optional[str] = None,
         payload_updates: Optional[Dict[str, Any]] = None,
+        increment_retry: bool = False,
     ) -> bool:
         """Atomically update a job's lifecycle state and stage."""
         now = utc_now_iso()
@@ -145,14 +146,16 @@ class Database:
             if payload_updates:
                 existing_payload.update(payload_updates)
 
+            retry_sql = ", retry_count = retry_count + 1" if increment_retry else ""
             conn.execute(
-                """
+                f"""
                 UPDATE jobs
                 SET state = ?,
                     current_stage = COALESCE(?, current_stage),
                     error_message = ?,
                     payload_json = ?,
                     updated_at = ?
+                    {retry_sql}
                 WHERE id = ?
                 """,
                 (
@@ -1025,10 +1028,48 @@ class Database:
             )
         return claims
 
+    def save_media_asset(self, asset: MediaAsset) -> None:
+        """Record or update a media asset in the database."""
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO media_assets (id, job_id, asset_type, file_path, duration_sec, license_info, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    asset.id,
+                    asset.job_id,
+                    asset.asset_type,
+                    asset.file_path,
+                    asset.duration_sec,
+                    asset.license_info,
+                    asset.created_at,
+                ),
+            )
+
+    def get_media_assets_for_job(self, job_id: str) -> List[MediaAsset]:
+        """Retrieve all recorded media assets for a job."""
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM media_assets WHERE job_id = ? ORDER BY created_at ASC",
+                (job_id,),
+            ).fetchall()
+            return [
+                MediaAsset(
+                    id=row["id"],
+                    job_id=row["job_id"],
+                    asset_type=row["asset_type"],
+                    file_path=row["file_path"],
+                    duration_sec=row["duration_sec"],
+                    license_info=row["license_info"],
+                    created_at=row["created_at"],
+                )
+                for row in rows
+            ]
+
     # --------------------------------------------------------------------------
     # Helper Serialization
     # --------------------------------------------------------------------------
-
 
     @staticmethod
     def _row_to_job(row: sqlite3.Row) -> Job:

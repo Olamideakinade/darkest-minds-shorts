@@ -80,9 +80,11 @@ def test_publishing_safety_evaluation(test_db):
 
     # 2. Test when channel is not connected in autonomous_public
     config.youtube_publish_mode = "autonomous_public"
-    can_pub, privacy, reason = engine.evaluate_publishing_safety(job)
-    assert can_pub is False
-    assert "not connected" in reason.lower()
+    from unittest.mock import patch
+    with patch.object(engine.channel_manager, "get_connection_status", return_value=OwnerChannelStatus(is_connected=False)):
+        can_pub, privacy, reason = engine.evaluate_publishing_safety(job)
+        assert can_pub is False
+        assert "not connected" in reason.lower()
 
     # Reset config
     config.youtube_publish_mode = "disabled"

@@ -31,6 +31,10 @@ class Config:
     credentials_dir: Path = BASE_DIR / "credentials"
     db_path: Path = BASE_DIR / "data" / "mhide.db"
 
+    # External Media Tools
+    ffmpeg_path: str = os.getenv("FFMPEG_PATH", "ffmpeg")
+    ffprobe_path: str = os.getenv("FFPROBE_PATH", "ffprobe")
+
     # Application settings
     app_env: str = os.getenv("APP_ENV", "local").lower()
     log_level: str = os.getenv("LOG_LEVEL", "INFO").upper()
