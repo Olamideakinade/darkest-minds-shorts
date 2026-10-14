@@ -13,6 +13,7 @@ from app.editing.timeline import ScenePlan
 from app.scripts.story_models import StoryScene, StoryScript
 from app.utils.logger import logger
 from app.visuals.asset_collector import AssetCollector, CollectedAsset, asset_collector
+from app.visuals.dev_scene_synthesizer import DeveloperSceneSynthesizer, dev_scene_synthesizer
 from app.visuals.scene_synthesizer import SceneSynthesizer, scene_synthesizer
 
 
@@ -70,15 +71,22 @@ class VisualProductionService:
             img_filename = f"scene_{plan.scene_number:02d}.png"
             scene_img_path = scenes_dir / img_filename
 
-            # 1. Resolve curated historical asset or query public-domain discovery
-            bg_path, attribution, license_info, is_pd = self._resolve_asset_for_plan(plan)
+            dev_types = {"code_editor", "terminal_window", "terminal_crash", "split_comparison", "confession_card", "browser_preview"}
+            if plan.asset_type in dev_types:
+                dev_scene_synthesizer.compose_scene(plan=plan, output_path=scene_img_path)
+                attribution = "Original MhideDev Developer Visuals"
+                license_info = "Original / CC0"
+                is_pd = True
+            else:
+                # 1. Resolve curated historical asset or query public-domain discovery
+                bg_path, attribution, license_info, is_pd = self._resolve_asset_for_plan(plan)
 
-            # 2. Render 1080x1920 specialized scene frame
-            self.synthesizer.compose_scene_from_plan(
-                plan=plan,
-                output_path=scene_img_path,
-                background_image_path=bg_path,
-            )
+                # 2. Render 1080x1920 specialized scene frame
+                self.synthesizer.compose_scene_from_plan(
+                    plan=plan,
+                    output_path=scene_img_path,
+                    background_image_path=bg_path,
+                )
 
             # 3. Formulate attribution metadata
             plan.source_attribution = attribution

@@ -144,3 +144,8 @@ class YouTubePublisher:
             "description": description,
             "tags": tags,
         }
+
+
+# Singleton instance
+publisher = YouTubePublisher()
+

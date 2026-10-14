@@ -79,6 +79,20 @@ class TimelineEngine:
         cur_word_idx = 0
         total_words = len(word_timestamps)
 
+        # Defensively sanitize beats: subdivide any clause exceeding 11 words so no scene exceeds 5.0s
+        sanitized_beats = []
+        for text_clause, purpose, query, asset_type, kinetic_phrase in raw_beats:
+            words = text_clause.split()
+            if len(words) > 11:
+                mid = len(words) // 2
+                first_half = " ".join(words[:mid])
+                second_half = " ".join(words[mid:])
+                sanitized_beats.append((first_half, purpose, query, asset_type, kinetic_phrase))
+                sanitized_beats.append((second_half, purpose, query, asset_type, kinetic_phrase))
+            else:
+                sanitized_beats.append((text_clause, purpose, query, asset_type, kinetic_phrase))
+        raw_beats = sanitized_beats
+
         # Distribute proportional timing across beats matching actual speech
         beat_word_counts = [max(1, len(b[0].split())) for b in raw_beats]
         sum_words = sum(beat_word_counts)
@@ -219,6 +233,102 @@ class TimelineEngine:
                     "Mona Lisa Leonardo da Vinci Louvre",
                     "archival_photo",
                     "A GLOBAL ICON BORN",
+                ),
+            ]
+
+        # Dedicated high-retention beats for Programming & Developer Culture stories
+        if any(k in topic_lower for k in ("friday", "production", "deploy", "developer", "coding", "bug", "git", "programming", "software")):
+            return [
+                (
+                    "I pushed to production at five o'clock on a Friday,",
+                    "hook",
+                    "developer confession production deploy",
+                    "confession_card",
+                    "FRIDAY 17:00 DEPLOY",
+                ),
+                (
+                    "and my Slack notifications exploded like machine gunfire.",
+                    "hook",
+                    "slack incident alert notification",
+                    "confession_card",
+                    "SLACK ALERTS EXPLODING",
+                ),
+                (
+                    "It was supposed to be a one-line hotfix.",
+                    "environment",
+                    "vs code python hotfix editor",
+                    "code_editor",
+                    "ONE-LINE HOTFIX",
+                ),
+                (
+                    "Just updating an environment variable for the auth gateway.",
+                    "environment",
+                    "auth gateway environment secret config",
+                    "code_editor",
+                    "ENV CONFIG PATCH",
+                ),
+                (
+                    "But within sixty seconds,",
+                    "tension",
+                    "500 internal server error loop terminal",
+                    "terminal_window",
+                    "60 SECONDS TO FAILURE",
+                ),
+                (
+                    "four thousand active users hit a five hundred error loop.",
+                    "tension",
+                    "api latency spike browser 500 error",
+                    "browser_preview",
+                    "HTTP 500 CRASH LOOP",
+                ),
+                (
+                    "The API latency spiked past nine thousand milliseconds.",
+                    "tension",
+                    "api latency spike browser 500 error",
+                    "browser_preview",
+                    "9,420ms LATENCY SPIKE",
+                ),
+                (
+                    "I was sweating through my hoodie, frantically typing git status,",
+                    "tension",
+                    "terminal git status panic",
+                    "terminal_window",
+                    "PANIC: GIT STATUS",
+                ),
+                (
+                    "while the VP of Engineering joined our emergency huddle.",
+                    "tension",
+                    "slack emergency incident bridge vp engineering",
+                    "confession_card",
+                    "VP JOINS EMERGENCY HUDDLE",
+                ),
+                (
+                    "On localhost, everything compiled with zero errors, but production was burning.",
+                    "tension",
+                    "localhost vs production split comparison",
+                    "split_comparison",
+                    "LOCALHOST VS PRODUCTION",
+                ),
+                (
+                    "Then the principal engineer joined the bridge,",
+                    "reveal",
+                    "principal engineer git blame inspection",
+                    "code_editor",
+                    "PRINCIPAL ARCHITECT ARRIVES",
+                ),
+                (
+                    "reverted the commit in eight seconds,",
+                    "reveal",
+                    "git revert commit terminal success",
+                    "terminal_window",
+                    "REVERTED IN 8 SECONDS",
+                ),
+                (
+                    "and whispered into his mic: 'Enjoy your weekend, junior.'",
+                    "payoff",
+                    "developer confession resolved weekend",
+                    "confession_card",
+                    "ENJOY YOUR WEEKEND, JUNIOR",
                 ),
             ]
 

@@ -538,15 +538,29 @@ def cmd_test_story(args: argparse.Namespace) -> int:
     from app.scripts.story_engine import StoryEngine
     from app.database.models import Job
 
-    topic = getattr(args, "topic", None) or "The Broom Closet Heist: How the Mona Lisa Became Famous"
+    topic = getattr(args, "topic", None) or "I Pushed to Production on a Friday at 5 PM"
     print("=" * 70)
     print(" MHIDE STORY INTELLIGENCE — ORIGINAL 3-ACT STORY GENERATION")
     print("=" * 70)
     print(f"Topic: {topic}\n")
 
+    topic_lower = topic.lower()
+    if any(k in topic_lower for k in ("friday", "production", "deploy", "developer", "coding", "bug", "git", "programming", "software", "terminal")):
+        niche = "Programming & Developer Culture"
+        angle = "A junior developer pushes a one-line hotfix at 5 PM on a Friday, breaking production for 4,000 users"
+        category = "shared_developer_confessions"
+    elif any(k in topic_lower for k in ("mona lisa", "heist", "louvre")):
+        niche = "Strange History & Unsolved Mysteries"
+        angle = "The audacious 1911 Louvre heist that turned Leonardo's portrait into a global icon"
+        category = "strange_history"
+    else:
+        niche = config.niche_default
+        angle = topic
+        category = "general"
+
     orch_job = db.create_job(
         title=topic,
-        payload={"topic": topic, "angle": "The untold story of the 1911 Louvre heist", "category": "strange_history"},
+        payload={"topic": topic, "angle": angle, "category": category},
     )
     engine = StoryEngine()
     story = engine.generate_story(orch_job)
@@ -580,20 +594,34 @@ def cmd_produce(args: argparse.Namespace) -> int:
     from app.orchestrator import Orchestrator
     from app.database.models import JobState
 
-    topic = getattr(args, "topic", None) or "The 1911 Mona Lisa Broom Closet Heist"
+    topic = getattr(args, "topic", None) or "I Pushed to Production on a Friday at 5 PM"
     print("=" * 70)
     print(" MHIDE STORY INTELLIGENCE — AUTONOMOUS SHORTS PRODUCTION PIPELINE")
     print("=" * 70)
     print(f"Target Story Topic: {topic}\n")
 
+    topic_lower = topic.lower()
+    if any(k in topic_lower for k in ("friday", "production", "deploy", "developer", "coding", "bug", "git", "programming", "software", "terminal")):
+        niche = "Programming & Developer Culture"
+        angle = "A junior developer pushes a one-line hotfix at 5 PM on a Friday, breaking production for 4,000 users"
+        category = "shared_developer_confessions"
+    elif any(k in topic_lower for k in ("mona lisa", "heist", "louvre")):
+        niche = "Strange History & Unsolved Mysteries"
+        angle = "The audacious 1911 Louvre heist that turned Leonardo's portrait into a global icon"
+        category = "strange_history"
+    else:
+        niche = config.niche_default
+        angle = topic
+        category = "general"
+
     orch = Orchestrator()
     job = orch.enqueue_job(
         title=topic,
-        niche="Strange History & Unsolved Mysteries",
+        niche=niche,
         payload={
             "topic": topic,
-            "angle": "The audacious 1911 Louvre heist that turned Leonardo's portrait into a global icon",
-            "category": "strange_history",
+            "angle": angle,
+            "category": category,
         },
     )
     print(f"Enqueued Production Job: {job.id} (Initial state: {job.state.value})")
@@ -673,6 +701,8 @@ def main() -> None:
     produce_parser = subparsers.add_parser("produce", help="Run end-to-end production of a completed YouTube Short MP4")
     produce_parser.add_argument("--topic", type=str, help="Topic for autonomous production")
 
+    subparsers.add_parser("dashboard", help="Render real-time MhideDev command center dashboard")
+
     # YouTube OAuth Subcommands
     yt_parser = subparsers.add_parser("youtube", help="Manage owner YouTube channel OAuth authorization and status")
     yt_parser.add_argument("--connect", action="store_true", help="Authorize your existing YouTube channel via system browser")
@@ -745,6 +775,9 @@ def main() -> None:
         sys.exit(cmd_test_story(args))
     elif args.command == "produce":
         sys.exit(cmd_produce(args))
+    elif args.command == "dashboard":
+        from app.dashboard.cli import render_dashboard
+        sys.exit(render_dashboard())
     else:
         # Default to health check if no command specified
         sys.exit(cmd_health())

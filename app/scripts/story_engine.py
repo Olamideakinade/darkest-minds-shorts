@@ -190,7 +190,16 @@ class StoryEngine:
 
     def _build_deterministic_script(self, topic: str, angle: str, category: str) -> Dict[str, Any]:
         """Deterministic high-retention script crafted to adhere strictly to YouTube retention principles."""
-        if "Mona Lisa" in topic or "Heist" in topic or "Louvre" in topic:
+        if any(k in topic.lower() for k in ("friday", "production", "deploy", "developer", "coding", "bug", "git", "programming", "software")):
+            hook = "I pushed to production at five o'clock on a Friday, and my Slack notifications exploded like machine gunfire."
+            escalation = (
+                "It was supposed to be a one-line hotfix. Just updating an environment variable for the auth gateway. "
+                "But within sixty seconds, four thousand active users were thrown into a five hundred internal server error loop. "
+                "The API latency spiked past nine thousand milliseconds. "
+                "I was sweating through my hoodie, frantically typing git status, while the VP of Engineering joined our emergency huddle."
+            )
+            payoff = "Then the principal engineer joined the bridge, reverted the commit in eight seconds, and whispered into his mic: 'Enjoy your weekend, junior.'"
+        elif "Mona Lisa" in topic or "Heist" in topic or "Louvre" in topic:
             hook = "In August 1911, the world's most famous painting vanished from the Louvre, and for twenty-four hours, nobody even noticed."
             escalation = (
                 "On a quiet Monday when the museum was closed, Vincenzo Peruggia slipped inside wearing a white workman's smock. "
@@ -223,33 +232,36 @@ class StoryEngine:
         }
 
     def _build_default_scenes(self, hook: str, escalation: str, payoff: str) -> List[Dict[str, Any]]:
-        """Construct visual scene breakdown matching the 3-act structure."""
-        return [
-            {
-                "narration_chunk": hook,
-                "visual_prompt": "Cinematic vertical 9:16 shot, dramatic archival lighting, mysterious atmosphere, historical realism",
-                "target_duration_sec": 7.0,
-                "visual_mood": "dramatic_opening",
-            },
-            {
-                "narration_chunk": escalation[:len(escalation)//2],
-                "visual_prompt": "Close-up vintage archival documents, dim candlelight, cinematic shadow, high tension, detailed textures",
-                "target_duration_sec": 14.0,
+        """Construct granular visual scene breakdown matching high-retention rapid pacing (2.5s-4.0s)."""
+        scenes: List[Dict[str, Any]] = []
+
+        # Hook scene (instant impact)
+        scenes.append({
+            "narration_chunk": hook,
+            "visual_prompt": "Cinematic vertical 9:16 dark mode screen, high stakes opening hook",
+            "target_duration_sec": 4.0,
+            "visual_mood": "crisis_opening",
+        })
+
+        # Split escalation into concise beats
+        sentences = [s.strip() for s in escalation.split(".") if s.strip()]
+        for idx, sentence in enumerate(sentences):
+            scenes.append({
+                "narration_chunk": sentence + ".",
+                "visual_prompt": f"Kinetic vertical 9:16 scene beat {idx + 1}, rapid code and terminal action",
+                "target_duration_sec": 3.2,
                 "visual_mood": "tense_escalation",
-            },
-            {
-                "narration_chunk": escalation[len(escalation)//2:],
-                "visual_prompt": "Historical archival setting, cinematic depth of field, dramatic shadows, realistic historical backdrop",
-                "target_duration_sec": 14.0,
-                "visual_mood": "suspenseful_middle",
-            },
-            {
-                "narration_chunk": payoff,
-                "visual_prompt": "Dramatic final reveal, lingering atmospheric fog, vertical composition, cinematic mystery aesthetic",
-                "target_duration_sec": 8.0,
-                "visual_mood": "striking_payoff",
-            },
-        ]
+            })
+
+        # Payoff scene
+        scenes.append({
+            "narration_chunk": payoff,
+            "visual_prompt": "Dramatic final comedic reveal and resolution punchline",
+            "target_duration_sec": 4.5,
+            "visual_mood": "payoff_resolution",
+        })
+
+        return scenes
 
     def _cleanse_script(self, story: StoryScript, issues: List[str]) -> StoryScript:
         """Strip formulaic clichés from narration."""

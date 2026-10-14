@@ -1,0 +1,36 @@
+[
+  {
+    "id": "e69f0340-52e8-4f05-947c-1b5e405fe85e",
+    "name": "Rapid Code Cut vs Long Code Hold",
+    "pillar": "shared_developer_confessions",
+    "hypothesis": "Rapid cuts (1.8s\u20132.5s) between VS Code editor and terminal crash will yield >20% higher 30-second retention than holding a static code screen for >5s.",
+    "independent_variable": "cut_frequency",
+    "variant_a": "rapid_cuts_2s",
+    "variant_b": "long_hold_5s",
+    "target_metric": "retention_pct",
+    "sample_size_target": 5,
+    "videos_tested": [],
+    "measured_variant_a_avg": 0.0,
+    "measured_variant_b_avg": 0.0,
+    "status": "ACTIVE",
+    "conclusion_notes": "",
+    "created_at": "2026-10-13T20:24:16.732673+00:00"
+  },
+  {
+    "id": "617a09ec-9449-4367-8b62-6896c9c254cb",
+    "name": "Friday Deploy Crisis vs General Career Tip",
+    "pillar": "programming_humour",
+    "hypothesis": "High-stakes relatable developer confessions ('I broke production on Friday') generate 3x higher share-to-friend ratio than general career advice.",
+    "independent_variable": "content_format",
+    "variant_a": "developer_crisis_confession",
+    "variant_b": "general_career_tip",
+    "target_metric": "share_count",
+    "sample_size_target": 5,
+    "videos_tested": [],
+    "measured_variant_a_avg": 0.0,
+    "measured_variant_b_avg": 0.0,
+    "status": "ACTIVE",
+    "conclusion_notes": "",
+    "created_at": "2026-10-13T20:24:16.733008+00:00"
+  }
+]

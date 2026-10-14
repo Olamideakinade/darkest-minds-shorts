@@ -5,24 +5,31 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Any
 
-# Curated starter search queries focused on high-retention storytelling niches
+# Curated starter search queries focused on developer culture and programming niches
 DEFAULT_RESEARCH_QUERIES = [
-    # Strange & verified history
-    "strange historical events",
-    "bizarre history facts",
-    "unbelievable history moments",
-    "forgotten historical mysteries",
-    # Documented mysteries (factual vs speculative)
-    "unsolved real mysteries",
-    "mysterious disappearance true story",
-    "documented ancient discoveries",
-    # Surprising real-life events & heists
-    "crazy true stories documented",
-    "historical heist true story",
+    # Shared-experience developer confessions & mistakes
+    "developer confessions funny",
+    "worst coding mistakes production",
+    "git push force production story",
+    "junior developer vs senior developer reality",
+    "programmer debugging for hours",
+    # Programming humour & relatable situations
+    "funny programming moments",
+    "coding memes relatable",
+    "software engineer friday deploy",
+    "why software engineers hate meetings",
+    # AI-assisted coding experiments & tech commentary
+    "building an app with ai in 60 seconds",
+    "coding with ai tools reality",
+    "github copilot funny fails",
+    "new programming language explained simply",
+    # Website building & web dev challenges
+    "frontend vs backend reality",
+    "javascript weird behavior explained",
+    "python tricks you didn't know",
+    # Strange & verified history (legacy support)
+    "bizarre technology history facts",
     "unexpected inventions that changed history",
-    # Science & human behavior curiosities
-    "strange psychological experiments real",
-    "surprising human behavior facts",
 ]
 
 # Starter competitor channel suggestions (empty by default; easily populated via config or CLI)

@@ -566,8 +566,11 @@ class MotionGraphicsEngine:
             if scene_rel_t >= 0.2:
                 fade_q = min(1.0, (scene_rel_t - 0.2) / 0.4)
                 alpha_q = int(255 * fade_q)
+                title_text = plan.kinetic_text or "THE PAYOFF"
+                if "mona lisa" in (plan.search_query or "").lower() or "mona lisa" in (plan.narration_segment or "").lower():
+                    title_text = "THE MOST FAMOUS FACE ON EARTH."
                 self._draw_cinematic_title(
-                    draw, text="THE MOST FAMOUS FACE ON EARTH.", y_pos=220, font=self.font_headline,
+                    draw, text=title_text, y_pos=220, font=self.font_headline,
                     color=(255, 255, 255, alpha_q), accent_bar=True, accent_color=(217, 164, 65, alpha_q),
                 )
 

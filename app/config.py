@@ -65,8 +65,9 @@ class Config:
     telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     telegram_allowed_user_ids: List[int] = field(default_factory=list)
 
-    # Strategy & Production Quotas
-    niche_default: str = os.getenv("NICHE_DEFAULT", "Strange History & Unsolved Mysteries")
+    # Creator Brand & Content Strategy
+    creator_brand: str = os.getenv("CREATOR_BRAND", "MhideDev")
+    niche_default: str = os.getenv("NICHE_DEFAULT", "Programming & Developer Culture")
     daily_shorts_target: int = int(os.getenv("DAILY_SHORTS_TARGET", "1"))
     max_queue_size: int = int(os.getenv("MAX_QUEUE_SIZE", "5"))
     render_concurrency: int = int(os.getenv("RENDER_CONCURRENCY", "1"))
@@ -139,6 +140,8 @@ class Config:
         """Return configuration dictionary with all secret values redacted."""
         return {
             "app_env": self.app_env,
+            "creator_brand": self.creator_brand,
+            "niche_default": self.niche_default,
             "log_level": self.log_level,
             "timezone": self.timezone,
             "base_dir": str(self.base_dir),
