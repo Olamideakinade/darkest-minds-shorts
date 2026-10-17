@@ -74,10 +74,8 @@ def sync_secrets(token: str):
         })
         print(f"  ✓ Secret '{name}' configured successfully.")
 
-    print("\n🚀 Triggering GitHub Actions Autopilot workflow...")
-    dispatch_url = f"https://api.github.com/repos/{REPO}/actions/workflows/autopilot.yml/dispatches"
-    github_api_request(dispatch_url, token, method="POST", data={"ref": "main"})
-    print("✓ Autopilot workflow dispatch triggered on 'main' branch!")
+    print("\n✓ All secrets synced successfully. Automated uploads remain disabled.")
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
