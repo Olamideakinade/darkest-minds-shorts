@@ -64,4 +64,4 @@ def test_database_crash_recovery(tmp_path: Path):
     assert j1.state == JobState.RETRYING
 
     j2 = test_db.get_job(job2.id)
-    assert j2.state == JobState.NEEDS_REVIEW
+    assert j2.state in (JobState.NEEDS_REVIEW, JobState.REVIEW_REQUIRED)

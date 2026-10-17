@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 import re
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.editing.captions import WordTimestamp
-from app.scripts.story_models import StoryScript
+from app.scripts.story_models import CanonicalProductionManifest, StoryScript
 from app.utils.logger import logger
 
 
@@ -25,8 +26,8 @@ class ScenePlan:
     search_query: str        # Targeted historical archive search query
     motion_type: str         # push_in, pull_back, pan_down, pan_up, pan_right, static_reveal
     transition_type: str     # cut, crossfade, flash_cut, dip_to_black
-    kinetic_text: str        # Punchy keyword/date overlay (e.g. "AUGUST 1911", "24 HOURS")
-    sound_cue: Optional[str] = None # camera_shutter, dossier_stamp, whoosh, tension_hit
+    kinetic_text: str        # Punchy keyword/date overlay derived strictly from narration
+    sound_cue: Optional[str] = None # tension_hit, dossier_stamp, whoosh, sub_bass_drop
     source_attribution: str = ""
     is_public_domain: bool = True
     rendered_image_path: Optional[Path] = None
@@ -42,7 +43,7 @@ class ScenePlan:
 
 
 class TimelineEngine:
-    """Builds a dynamic, multi-scene editing timeline synchronized with speech."""
+    """Builds a dynamic, multi-scene editing timeline strictly derived from the approved script."""
 
     # Default motion cadence based on narrative purpose
     PURPOSE_MOTION_MAP = {
@@ -56,68 +57,117 @@ class TimelineEngine:
         "payoff": "push_in",
     }
 
+    def __init__(self) -> None:
+        self.last_manifest: Optional[CanonicalProductionManifest] = None
+
     def build_timeline(
         self,
         story: StoryScript,
         word_timestamps: List[WordTimestamp],
         total_duration: float,
+        job_dir: Optional[Path] = None,
     ) -> List[ScenePlan]:
-        """Deconstruct story into rapid, purposeful 2.5s–4.5s scene beats synchronized with speech."""
-        full_text = story.full_narration or f"{story.hook_text} {story.escalation_text} {story.payoff_text}".strip()
-        
-        # Split text into logical storytelling clauses
+        """Build timeline scenes and canonical production manifest strictly from approved script."""
+        # 1. Segment approved narration into rapid, purposeful 2.5s–4.5s scene beats
         raw_beats = self._segment_into_beats(story)
         if not raw_beats:
             raw_beats = [
-                (story.hook_text, "hook", "Mona Lisa Louvre", "archival_photo", "AUGUST 1911"),
-                (story.escalation_text, "tension", "Vincenzo Peruggia", "archival_photo", "THE HEIST"),
-                (story.payoff_text, "payoff", "Salon Carre Louvre", "archival_photo", "LEGENDARY"),
+                (story.hook_text, "hook", story.title, "archival_photo", self._extract_kinetic_text(story.hook_text, story.title)),
+                (story.escalation_text, "tension", story.title, "archival_photo", self._extract_kinetic_text(story.escalation_text, story.title)),
+                (story.payoff_text, "payoff", story.title, "archival_photo", self._extract_kinetic_text(story.payoff_text, story.title)),
             ]
 
-        # Map clauses to word timestamps to calculate exact start/end seconds
-        scenes: List[ScenePlan] = []
-        cur_word_idx = 0
-        total_words = len(word_timestamps)
-
-        # Defensively sanitize beats: subdivide any clause exceeding 11 words so no scene exceeds 5.0s
+        # Defensively sanitize beats: subdivide any clause exceeding 12 words
         sanitized_beats = []
         for text_clause, purpose, query, asset_type, kinetic_phrase in raw_beats:
             words = text_clause.split()
-            if len(words) > 11:
+            if len(words) > 12:
                 mid = len(words) // 2
                 first_half = " ".join(words[:mid])
                 second_half = " ".join(words[mid:])
-                sanitized_beats.append((first_half, purpose, query, asset_type, kinetic_phrase))
-                sanitized_beats.append((second_half, purpose, query, asset_type, kinetic_phrase))
+                sanitized_beats.append((first_half, purpose, query, asset_type, self._extract_kinetic_text(first_half, story.title)))
+                sanitized_beats.append((second_half, purpose, query, asset_type, self._extract_kinetic_text(second_half, story.title)))
             else:
                 sanitized_beats.append((text_clause, purpose, query, asset_type, kinetic_phrase))
         raw_beats = sanitized_beats
 
-        # Distribute proportional timing across beats matching actual speech
+        # Ensure documentary visual diversity (at least 3 distinct asset types across 6+ beats)
+        if len(raw_beats) >= 6:
+            existing_types = set(b[3] for b in raw_beats)
+            if len(existing_types) < 3:
+                diverse_beats = []
+                for b_idx, (tc, purp, qry, at, kp) in enumerate(raw_beats):
+                    if b_idx == 1 and at == "archival_photo":
+                        diverse_beats.append((tc, purp, qry, "historical_map", kp))
+                    elif b_idx == 3 and at == "archival_photo":
+                        diverse_beats.append((tc, purp, qry, "police_dossier", kp))
+                    elif b_idx == 4 and at == "archival_photo" and len(existing_types) < 2:
+                        diverse_beats.append((tc, purp, qry, "newspaper_headline", kp))
+                    else:
+                        diverse_beats.append((tc, purp, qry, at, kp))
+                raw_beats = diverse_beats
+
+        # 2. Determine timing mode
+        has_acoustic_timestamps = (
+            bool(word_timestamps) and not any(getattr(wt, "is_estimated", False) for wt in word_timestamps)
+        )
+        timing_mode = "acoustic" if has_acoustic_timestamps else "provisional"
+
+        # 3. Calculate timing per beat using word timestamps if available
+        scenes: List[ScenePlan] = []
+        total_words = len(word_timestamps)
         beat_word_counts = [max(1, len(b[0].split())) for b in raw_beats]
         sum_words = sum(beat_word_counts)
-        
+
+        cur_word_idx = 0
         cur_time = 0.0
+
         for idx, (text_clause, purpose, query, asset_type, kinetic_phrase) in enumerate(raw_beats, start=1):
             w_count = beat_word_counts[idx - 1]
-            clause_duration = (w_count / sum_words) * total_duration
-            
-            # Snap to actual word timestamps if available
             start_sec = cur_time
-            end_sec = min(total_duration, cur_time + clause_duration)
+
+            if has_acoustic_timestamps and total_words > 0 and cur_word_idx < total_words:
+                target_word_idx = min(total_words - 1, cur_word_idx + w_count - 1)
+                if idx == len(raw_beats):
+                    end_sec = total_duration
+                elif target_word_idx < total_words - 1:
+                    end_sec = max(start_sec + 0.1, word_timestamps[target_word_idx].end_sec)
+                else:
+                    clause_duration = (w_count / sum_words) * (total_duration - cur_time)
+                    end_sec = min(total_duration, cur_time + max(0.5, clause_duration))
+                cur_word_idx = target_word_idx + 1
+            else:
+                clause_duration = (w_count / sum_words) * total_duration
+                end_sec = min(total_duration, cur_time + clause_duration)
+                if idx == len(raw_beats):
+                    end_sec = total_duration
+
+            if end_sec <= start_sec:
+                end_sec = min(total_duration, start_sec + 0.5)
             if idx == len(raw_beats):
                 end_sec = total_duration
 
-            # Determine motion & transitions based on purpose
+            cur_time = end_sec
+
+            # Determine motion & transitions
             motion = self.PURPOSE_MOTION_MAP.get(purpose, "push_in")
-            trans = "flash_cut" if idx == 1 else ("crossfade" if purpose in ("reveal", "payoff") else "cut")
-            sfx = "tension_hit" if idx == 1 else ("dossier_stamp" if asset_type == "police_dossier" else "whoosh")
+            trans = "flash_cut" if idx == 1 else ("crossfade" if purpose in ("reveal", "payoff", "discovery") else "cut")
+            
+            # Sound cues: Atmospheric only, NEVER success_chime.wav
+            if idx == 1:
+                sfx = "tension_hit"
+            elif asset_type == "police_dossier":
+                sfx = "document_stamp"
+            elif purpose in ("reveal", "payoff"):
+                sfx = "sub_bass_drop"
+            else:
+                sfx = "transition_whoosh"
 
             plan = ScenePlan(
                 scene_number=idx,
                 start_sec=round(start_sec, 2),
                 end_sec=round(end_sec, 2),
-                duration_sec=round(end_sec - start_sec, 2),
+                duration_sec=round(max(0.1, end_sec - start_sec), 2),
                 narration_segment=text_clause,
                 visual_purpose=purpose,
                 asset_type=asset_type,
@@ -130,242 +180,159 @@ class TimelineEngine:
             scenes.append(plan)
             cur_time = end_sec
 
+        # 4. Construct CanonicalProductionManifest
+        manifest = CanonicalProductionManifest(
+            job_id=story.job_id or "job_unspecified",
+            topic=story.title,
+            title=story.title,
+            target_duration_seconds=round(total_duration, 2),
+            verified_claims=[c.to_dict() if hasattr(c, "to_dict") else c for c in story.factual_claims],
+            exact_narration_segments=[p.narration_segment for p in scenes],
+            scene_ids=[f"scene_{p.scene_number:02d}" for p in scenes],
+            scene_narration_references={f"scene_{p.scene_number:02d}": p.narration_segment for p in scenes},
+            word_boundary_timestamps=[wt.to_dict() for wt in word_timestamps],
+            timing_mode=timing_mode,
+            visual_purpose=[p.visual_purpose for p in scenes],
+            image_prompts=[p.search_query for p in scenes],
+            negative_prompts=["modern, radar, hud, futuristic, cyber, vector, glowing neon, watermark, distortion" for _ in scenes],
+            camera_movements=[p.motion_type for p in scenes],
+            overlays=[p.kinetic_text for p in scenes],
+            sound_cues=[p.sound_cue or "none" for p in scenes],
+            transition_types=[p.transition_type for p in scenes],
+            source_references=list(set([getattr(c, "source_url", "") for c in story.factual_claims if getattr(c, "source_url", "")])),
+            verification_status=story.factual_verification_status or "VERIFIED",
+            scenes=[p.to_dict() for p in scenes],
+        )
+        self.last_manifest = manifest
+
+        # 5. Persist manifest and timeline if job_dir provided
+        if job_dir:
+            manifest_file = job_dir / "canonical_manifest.json"
+            timeline_file = job_dir / "timeline.json"
+            with open(manifest_file, "w", encoding="utf-8") as f:
+                json.dump(manifest.to_dict(), f, indent=2)
+            with open(timeline_file, "w", encoding="utf-8") as f:
+                json.dump([p.to_dict() for p in scenes], f, indent=2)
+
         logger.info(
-            f"Timeline engineered: {len(scenes)} dynamic scene beats spanning {total_duration:.1f}s "
-            f"(avg beat duration: {total_duration / max(1, len(scenes)):.1f}s)"
+            f"Timeline engineered: {len(scenes)} scenes spanning {total_duration:.1f}s "
+            f"(mode: {timing_mode}, avg scene: {total_duration / max(1, len(scenes)):.1f}s)"
         )
         return scenes
 
-    def _segment_into_beats(self, story: StoryScript) -> List[tuple[str, str, str, str, str]]:
-        """Deconstruct 3-act story into granular, visually distinct narrative beats."""
-        topic_lower = story.title.lower()
-        
-        # Dedicated rich beats for historical Mona Lisa heist
-        if "mona lisa" in topic_lower or "louvre" in topic_lower:
-            return [
-                (
-                    "In August 1911, the world's most famous painting vanished from the Louvre,",
-                    "hook",
-                    "Salon Carre Louvre",
-                    "archival_photo",
-                    "AUGUST 1911: SALON CARRÉ",
-                ),
-                (
-                    "and for twenty-four hours, nobody even noticed it was gone.",
-                    "discovery",
-                    "Mona Lisa empty wall Louvre 1911",
-                    "archival_photo",
-                    "24 HOURS UNNOTICED",
-                ),
-                (
-                    "On a quiet Monday when the museum was closed to the public,",
-                    "environment",
-                    "Louvre closed Monday maintenance 1911",
-                    "historical_map",
-                    "LOUVRE CLOSED TO PUBLIC",
-                ),
-                (
-                    "Vincenzo Peruggia slipped inside wearing a white workman's smock.",
-                    "suspect_intro",
-                    "Vincenzo Peruggia police mugshot",
-                    "archival_photo",
-                    "VINCENZO PERUGGIA",
-                ),
-                (
-                    "A former glazier who fitted the protective glass,",
-                    "infiltration",
-                    "Louvre glass frame 1911",
-                    "police_dossier",
-                    "FORMER LOUVRE WORKER",
-                ),
-                (
-                    "he unhooked the portrait and stripped the frame in the Visconti stairwell.",
-                    "infiltration",
-                    "Louvre Visconti stairwell map",
-                    "historical_map",
-                    "ESCALIER VISCONTI",
-                ),
-                (
-                    "Guards assumed the painting was being photographed,",
-                    "environment",
-                    "Braun Cie Louvre photography",
-                    "archival_photo",
-                    "GUARDS UNAWARE",
-                ),
-                (
-                    "until painter Louis Béroud found four empty pegs on Tuesday morning.",
-                    "discovery",
-                    "Louis Beroud Mona Lisa Louvre",
-                    "archival_photo",
-                    "LOUIS BÉROUD (PAINTER)",
-                ),
-                (
-                    "For two years, the French police were completely baffled,",
-                    "tension",
-                    "French police dossier 1911",
-                    "police_dossier",
-                    "POLICE INVESTIGATION // 2 YEARS",
-                ),
-                (
-                    "while the masterpiece sat hidden in a wooden trunk inside Peruggia's Paris room.",
-                    "tension",
-                    "Rue Hopital Saint-Louis Peruggia",
-                    "historical_map",
-                    "HIDDEN IN PARIS TRUNK",
-                ),
-                (
-                    "Front-page headlines exploded worldwide with massive rewards and wild theories.",
-                    "reveal",
-                    "Le Petit Journal Mona Lisa",
-                    "newspaper_headline",
-                    "FRONT PAGE SENSATION",
-                ),
-                (
-                    "When it was finally recovered in Florence,",
-                    "reveal",
-                    "L'Excelsior theft coverage Florence",
-                    "archival_photo",
-                    "RECOVERED IN FLORENCE",
-                ),
-                (
-                    "Vincenzo hadn't just stolen the Mona Lisa—he made it the most famous face on Earth.",
-                    "payoff",
-                    "Mona Lisa Leonardo da Vinci Louvre",
-                    "archival_photo",
-                    "A GLOBAL ICON BORN",
-                ),
-            ]
+    def _segment_into_beats(self, story: StoryScript) -> List[Tuple[str, str, str, str, str]]:
+        """Deconstruct approved story into granular beats derived directly from the approved narration."""
+        # Check if pre-structured story scenes exist
+        if story.scenes and len(story.scenes) >= 3:
+            beats: List[Tuple[str, str, str, str, str]] = []
+            for idx, sc in enumerate(story.scenes):
+                chunk = sc.narration_chunk.strip()
+                if not chunk:
+                    continue
+                purpose = self._infer_purpose(idx, len(story.scenes))
+                asset_type = self._infer_asset_type(purpose, chunk)
+                query = getattr(sc, "pexels_query", "") or sc.visual_prompt or f"{story.title} {chunk[:32]}"
+                kinetic = getattr(sc, "badge_text", "") or self._extract_kinetic_text(chunk, story.title)
+                beats.append((chunk, purpose, query, asset_type, kinetic))
+            if beats:
+                return beats
 
-        # Dedicated high-retention beats for Programming & Developer Culture stories
-        if any(k in topic_lower for k in ("friday", "production", "deploy", "developer", "coding", "bug", "git", "programming", "software")):
-            return [
-                (
-                    "I pushed to production at five o'clock on a Friday,",
-                    "hook",
-                    "developer confession production deploy",
-                    "confession_card",
-                    "FRIDAY 17:00 DEPLOY",
-                ),
-                (
-                    "and my Slack notifications exploded like machine gunfire.",
-                    "hook",
-                    "slack incident alert notification",
-                    "confession_card",
-                    "SLACK ALERTS EXPLODING",
-                ),
-                (
-                    "It was supposed to be a one-line hotfix.",
-                    "environment",
-                    "vs code python hotfix editor",
-                    "code_editor",
-                    "ONE-LINE HOTFIX",
-                ),
-                (
-                    "Just updating an environment variable for the auth gateway.",
-                    "environment",
-                    "auth gateway environment secret config",
-                    "code_editor",
-                    "ENV CONFIG PATCH",
-                ),
-                (
-                    "But within sixty seconds,",
-                    "tension",
-                    "500 internal server error loop terminal",
-                    "terminal_window",
-                    "60 SECONDS TO FAILURE",
-                ),
-                (
-                    "four thousand active users hit a five hundred error loop.",
-                    "tension",
-                    "api latency spike browser 500 error",
-                    "browser_preview",
-                    "HTTP 500 CRASH LOOP",
-                ),
-                (
-                    "The API latency spiked past nine thousand milliseconds.",
-                    "tension",
-                    "api latency spike browser 500 error",
-                    "browser_preview",
-                    "9,420ms LATENCY SPIKE",
-                ),
-                (
-                    "I was sweating through my hoodie, frantically typing git status,",
-                    "tension",
-                    "terminal git status panic",
-                    "terminal_window",
-                    "PANIC: GIT STATUS",
-                ),
-                (
-                    "while the VP of Engineering joined our emergency huddle.",
-                    "tension",
-                    "slack emergency incident bridge vp engineering",
-                    "confession_card",
-                    "VP JOINS EMERGENCY HUDDLE",
-                ),
-                (
-                    "On localhost, everything compiled with zero errors, but production was burning.",
-                    "tension",
-                    "localhost vs production split comparison",
-                    "split_comparison",
-                    "LOCALHOST VS PRODUCTION",
-                ),
-                (
-                    "Then the principal engineer joined the bridge,",
-                    "reveal",
-                    "principal engineer git blame inspection",
-                    "code_editor",
-                    "PRINCIPAL ARCHITECT ARRIVES",
-                ),
-                (
-                    "reverted the commit in eight seconds,",
-                    "reveal",
-                    "git revert commit terminal success",
-                    "terminal_window",
-                    "REVERTED IN 8 SECONDS",
-                ),
-                (
-                    "and whispered into his mic: 'Enjoy your weekend, junior.'",
-                    "payoff",
-                    "developer confession resolved weekend",
-                    "confession_card",
-                    "ENJOY YOUR WEEKEND, JUNIOR",
-                ),
-            ]
+        # Tokenize narration text by natural sentence / clause boundaries
+        full_text = story.full_narration or f"{story.hook_text} {story.escalation_text} {story.payoff_text}".strip()
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", full_text) if s.strip()]
 
-        # Generic beat engine for other stories: break into rapid 2.5s-4.0s rhythmic storytelling clauses
-        beats: List[tuple[str, str, str, str, str]] = []
-
-        def _split_into_clauses(text: str, max_words: int = 10) -> List[str]:
-            raw = [c.strip() for c in re.split(r"[,;:\—]|\.(?=\s)", text) if len(c.strip()) > 5]
-            if not raw:
-                raw = [text.strip()]
-            chunks = []
-            for r in raw:
-                words = r.split()
-                if len(words) <= max_words:
-                    chunks.append(r)
-                else:
-                    for i in range(0, len(words), max_words):
-                        chunks.append(" ".join(words[i:i + max_words]))
-            return chunks
-
-        # Hook clauses (1-2 beats)
-        hook_clauses = _split_into_clauses(story.hook_text, max_words=10)
-        for h_idx, hc in enumerate(hook_clauses):
-            beats.append((hc, "hook", story.title, "archival_photo", "THE DISCOVERY" if h_idx == 0 else "UNEXPLAINED"))
-
-        # Escalation clauses (3-5 beats)
-        escalation_clauses = _split_into_clauses(story.escalation_text, max_words=10)
-        purposes = ["environment", "tension", "infiltration", "reveal"]
-        asset_cycle = ["police_dossier", "historical_map", "archival_photo", "newspaper_headline"]
-        for idx, ec in enumerate(escalation_clauses):
-            p = purposes[idx % len(purposes)]
-            a = asset_cycle[idx % len(asset_cycle)]
-            beats.append((ec, p, f"{story.title} historical archive", a, f"EVIDENCE #{idx + 1}"))
-
-        # Payoff clauses (1-2 beats)
-        payoff_clauses = _split_into_clauses(story.payoff_text, max_words=10)
-        for p_idx, pc in enumerate(payoff_clauses):
-            beats.append((pc, "payoff", f"{story.title} mystery", "archival_photo", "THE TRUTH" if p_idx == 0 else "CASE CLOSED"))
+        beats = []
+        for idx, sentence in enumerate(sentences):
+            words = sentence.split()
+            # If sentence exceeds 11 words and has clause punctuation, split gracefully
+            if len(words) > 11 and any(p in sentence for p in (",", ";", "—")):
+                parts = [p.strip() for p in re.split(r"[,;—]\s*", sentence) if p.strip()]
+                for p_idx, part in enumerate(parts):
+                    purpose = self._infer_purpose(len(beats), max(4, len(sentences) * 2))
+                    asset_type = self._infer_asset_type(purpose, part)
+                    query = f"{story.title} {part[:32]}"
+                    kinetic = self._extract_kinetic_text(part, story.title)
+                    beats.append((part, purpose, query, asset_type, kinetic))
+            else:
+                purpose = self._infer_purpose(idx, len(sentences))
+                asset_type = self._infer_asset_type(purpose, sentence)
+                query = f"{story.title} {sentence[:32]}"
+                kinetic = self._extract_kinetic_text(sentence, story.title)
+                beats.append((sentence, purpose, query, asset_type, kinetic))
 
         return beats
+
+    @staticmethod
+    def _infer_purpose(index: int, total: int) -> str:
+        """Infer dramatic purpose from position in the narrative arc."""
+        if index == 0:
+            return "hook"
+        if index == 1:
+            return "discovery"
+        if index == total - 1:
+            return "payoff"
+        if index == total - 2:
+            return "reveal"
+        if index % 2 == 0:
+            return "tension"
+        return "environment"
+
+    @staticmethod
+    def _infer_asset_type(purpose: str, text: str) -> str:
+        """Select appropriate documentary asset type from narrative content."""
+        t_low = text.lower()
+        if any(k in t_low for k in ("map", "island", "route", "latitude", "ocean", "sea", "perimeter", "location")):
+            return "historical_map"
+        if any(k in t_low for k in ("logbook", "record", "letter", "dossier", "telegram", "report", "file", "clock", "coat")):
+            return "police_dossier"
+        if any(k in t_low for k in ("headline", "newspaper", "front page", "times", "journal")):
+            return "newspaper_headline"
+        return "archival_photo"
+
+    @staticmethod
+    def _extract_kinetic_text(text: str, fallback_topic: str) -> str:
+        """Extract a punchy keyword, countdown rank, date, or phrase directly from the narration beat."""
+        # 0. Check for Countdown Rank: e.g. "Number 5", "#5", "At number 3", "And at number 1"
+        rank_m = re.search(r"\b(?:At\s+|And\s+at\s+)?(?:number|rank|#)\s*([1-9])\b", text, re.IGNORECASE)
+        if rank_m:
+            rank_num = rank_m.group(1)
+            after_rank = text[rank_m.end():].strip(" :,-—")
+            subject_words = [w.strip(".,;:\"'!?") for w in after_rank.split() if len(w) > 2][:3]
+            subject_str = " ".join(subject_words).upper()
+            if subject_str:
+                return f"#{rank_num} • {subject_str}"
+            return f"RANK #{rank_num}"
+
+        # 1. Look for date/year in beat: e.g. "December 1900", "In 1911", "August 1911"
+        date_m = re.search(r"\b((?:January|February|March|April|May|June|July|August|September|October|November|December)?\s*(?:1[89][0-9]{2}|20[0-2][0-9]))\b", text, re.IGNORECASE)
+        if date_m and date_m.group(0).strip():
+            matched_date = date_m.group(0).strip().upper()
+            # If island or place is also in the beat, combine
+            place_m = re.search(r"\b(Eilean Mòr|Flannan|Louvre|Paris|Scotland|Atlantic)\b", text, re.IGNORECASE)
+            if place_m:
+                return f"{matched_date}: {place_m.group(0).upper()}"
+            return matched_date
+
+        # 2. Look for prominent quoted text
+        quote_m = re.search(r"['\"]([^'\"]{4,28})['\"]", text)
+        if quote_m:
+            return quote_m.group(1).upper()
+
+        # 3. Look for strong historical mystery keywords present IN THIS BEAT
+        for kw in (
+            "untouched meal", "clocks stopped", "logbook recorded", "no bodies",
+            "storm recorded", "empty pegs", "oilskin coat", "vanished", "investigation",
+            "unsolved", "evidence", "the vanishing"
+        ):
+            if kw in text.lower():
+                return kw.upper()
+
+        # 4. Default: first 3-4 impactful words from the beat itself
+        words = [w.strip(".,;:\"'!?") for w in text.split() if len(w) > 2][:3]
+        if words:
+            return " ".join(words).upper()
+        return fallback_topic.upper()[:24]
+
+
+# Global timeline engine singleton
+timeline_engine = TimelineEngine()

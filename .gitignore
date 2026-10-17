@@ -64,6 +64,10 @@ data/temp/
 *.jpeg
 *.srt
 *.ass
+scratch_*.json
+word_timestamps.json
+data/asset_cache/
+data/research_cache/
 
 # macOS System Files
 .DS_Store

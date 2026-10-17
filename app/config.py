@@ -41,18 +41,31 @@ class Config:
     timezone: str = os.getenv("TIMEZONE", "Africa/Lagos")
     min_disk_free_gb: float = float(os.getenv("MIN_DISK_FREE_GB", "10.0"))
 
-    # AI / LLM Provider (Zero-Cost Local Default)
+    # AI / LLM Provider (Zero-Cost Local Default or Google Gemini)
     model_provider: str = os.getenv("MODEL_PROVIDER", "ollama").lower()
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
     ollama_model: str = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
     ollama_reasoning_model: str = os.getenv("OLLAMA_REASONING_MODEL", "qwen2.5-coder:7b")
     paid_apis_enabled: bool = os.getenv("PAID_APIS_ENABLED", "false").lower() in ("true", "1", "yes")
+    gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    pixabay_api_key: str = os.getenv("PIXABAY_API_KEY", "")
 
-    # Local TTS Voiceover Engine
-    tts_provider: str = os.getenv("TTS_PROVIDER", "edge-tts").lower()
+    # Neural Voiceover Engine (ElevenLabs, Google Gemini TTS, Fish Audio, or Edge-TTS)
+    tts_provider: str = os.getenv("TTS_PROVIDER", "elevenlabs").lower()
     tts_voice: str = os.getenv("TTS_VOICE", "en-US-ChristopherNeural")
-    tts_rate: str = os.getenv("TTS_RATE", "+0%")
+    tts_rate: str = os.getenv("TTS_RATE", "+8%")
+    tts_pitch: str = os.getenv("TTS_PITCH", "-6Hz")
     tts_volume: str = os.getenv("TTS_VOLUME", "+0%")
+
+    # High-Retention Cinematic Voices (ElevenLabs / Fish Audio / OpenAI)
+    elevenlabs_api_key: str = os.getenv("ELEVENLABS_API_KEY", "")
+    elevenlabs_voice_id: str = os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")  # Default: Adam (dark documentary narrator)
+    elevenlabs_model_id: str = os.getenv("ELEVENLABS_MODEL_ID", "eleven_turbo_v2_5")
+    fish_audio_api_key: str = os.getenv("FISH_AUDIO_API_KEY", "")
+    fish_audio_voice_id: str = os.getenv("FISH_AUDIO_VOICE_ID", "")
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    openai_tts_voice: str = os.getenv("OPENAI_TTS_VOICE", "onyx")
 
     # YouTube Data API v3 & OAuth
     youtube_api_key: str = os.getenv("YOUTUBE_API_KEY", "")
@@ -61,14 +74,26 @@ class Config:
     youtube_publish_mode: str = os.getenv("YOUTUBE_PUBLISH_MODE", "disabled").lower()
     youtube_default_privacy: str = os.getenv("YOUTUBE_DEFAULT_PRIVACY", "private").lower()
 
+    # Multi-Platform Publishing & Autonomous Engine Controls (Stage 10)
+    instagram_publish_mode: str = os.getenv("INSTAGRAM_PUBLISH_MODE", "disabled").lower()
+    tiktok_publish_mode: str = os.getenv("TIKTOK_PUBLISH_MODE", "disabled").lower()
+    auto_publish_enabled: bool = os.getenv("AUTO_PUBLISH_ENABLED", "false").lower() in ("true", "1", "yes")
+    auto_publish_daily_limit: int = int(os.getenv("AUTO_PUBLISH_DAILY_LIMIT", os.getenv("MAX_DAILY_UPLOADS", "2")))
+    auto_publish_min_interval_hours: float = float(os.getenv("AUTO_PUBLISH_MIN_INTERVAL_HOURS", "4.0"))
+    auto_publish_max_daily_spend: float = float(os.getenv("AUTO_PUBLISH_MAX_DAILY_SPEND", "0.0"))
+    auto_publish_allowed_hours: str = os.getenv("AUTO_PUBLISH_ALLOWED_HOURS", "09-22")
+    auto_publish_timezone: str = os.getenv("AUTO_PUBLISH_TIMEZONE", os.getenv("TIMEZONE", "Africa/Lagos"))
+    auto_publish_failure_limit: int = int(os.getenv("AUTO_PUBLISH_FAILURE_LIMIT", "3"))
+    auto_cleanup_artifacts: bool = os.getenv("AUTO_CLEANUP_ARTIFACTS", "true").lower() in ("true", "1", "yes")
+
     # Telegram Control Room
     telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     telegram_allowed_user_ids: List[int] = field(default_factory=list)
 
     # Creator Brand & Content Strategy
-    creator_brand: str = os.getenv("CREATOR_BRAND", "MhideDev")
-    niche_default: str = os.getenv("NICHE_DEFAULT", "Programming & Developer Culture")
-    daily_shorts_target: int = int(os.getenv("DAILY_SHORTS_TARGET", "1"))
+    creator_brand: str = os.getenv("CREATOR_BRAND", "Darkest Minds 101")
+    niche_default: str = os.getenv("NICHE_DEFAULT", "Unsolved Mysteries & Strange Disappearances")
+    daily_shorts_target: int = int(os.getenv("DAILY_SHORTS_TARGET", "2"))
     max_queue_size: int = int(os.getenv("MAX_QUEUE_SIZE", "5"))
     render_concurrency: int = int(os.getenv("RENDER_CONCURRENCY", "1"))
     target_video_duration_min: int = int(os.getenv("TARGET_VIDEO_DURATION_MIN", "25"))
@@ -82,19 +107,27 @@ class Config:
 
     # Autonomous Channel Operator Settings
     autonomous_research_interval_hours: int = int(os.getenv("AUTONOMOUS_RESEARCH_INTERVAL_HOURS", "24"))
-    autonomous_production_interval_hours: int = int(os.getenv("AUTONOMOUS_PRODUCTION_INTERVAL_HOURS", "24"))
+    autonomous_production_interval_hours: int = int(os.getenv("AUTONOMOUS_PRODUCTION_INTERVAL_HOURS", "12"))
     autonomous_paused: bool = os.getenv("AUTONOMOUS_PAUSED", "false").lower() in ("true", "1", "yes")
-    max_daily_uploads: int = int(os.getenv("MAX_DAILY_UPLOADS", "1"))
+    max_daily_uploads: int = int(os.getenv("MAX_DAILY_UPLOADS", "2"))
 
     def __post_init__(self) -> None:
         # Normalize and align publishing mode aliases
         mode = self.youtube_publish_mode.lower()
-        if mode in ("autonomous", "autonomous_public"):
+        if mode in ("autonomous", "autonomous_public", "public"):
             self.youtube_publish_mode = "autonomous_public"
-        elif mode in ("review-required", "private_test", "review_required"):
+        elif mode in ("review-required", "private_test", "review_required", "private"):
             self.youtube_publish_mode = "private_test"
         else:
             self.youtube_publish_mode = "disabled"
+
+        if self.instagram_publish_mode not in ("disabled", "dry_run", "publish"):
+            self.instagram_publish_mode = "disabled"
+
+        if self.tiktok_publish_mode not in ("disabled", "dry_run", "publish"):
+            self.tiktok_publish_mode = "disabled"
+
+        self.max_daily_uploads = self.auto_publish_daily_limit
 
         # Parse telegram allowed user IDs
         raw_ids = os.getenv("TELEGRAM_ALLOWED_USER_IDS", "")
@@ -153,6 +186,12 @@ class Config:
             "ollama_model": self.ollama_model,
             "ollama_reasoning_model": self.ollama_reasoning_model,
             "paid_apis_enabled": self.paid_apis_enabled,
+            "gemini_api_key_configured": bool(self.gemini_api_key),
+            "gemini_model": self.gemini_model,
+            "pixabay_api_key_configured": bool(self.pixabay_api_key),
+            "elevenlabs_api_key_configured": bool(self.elevenlabs_api_key),
+            "fish_audio_api_key_configured": bool(self.fish_audio_api_key),
+            "openai_api_key_configured": bool(self.openai_api_key),
             "tts_provider": self.tts_provider,
             "tts_voice": self.tts_voice,
             "tts_rate": self.tts_rate,
@@ -160,6 +199,15 @@ class Config:
             "youtube_default_privacy": self.youtube_default_privacy,
             "youtube_api_key_configured": bool(self.youtube_api_key),
             "youtube_client_secrets_exists": self.youtube_client_secrets_file.exists(),
+            "instagram_publish_mode": self.instagram_publish_mode,
+            "tiktok_publish_mode": self.tiktok_publish_mode,
+            "auto_publish_enabled": self.auto_publish_enabled,
+            "auto_publish_daily_limit": self.auto_publish_daily_limit,
+            "auto_publish_min_interval_hours": self.auto_publish_min_interval_hours,
+            "auto_publish_max_daily_spend": self.auto_publish_max_daily_spend,
+            "auto_publish_allowed_hours": self.auto_publish_allowed_hours,
+            "auto_publish_timezone": self.auto_publish_timezone,
+            "auto_publish_failure_limit": self.auto_publish_failure_limit,
             "telegram_bot_configured": bool(self.telegram_bot_token),
             "telegram_allowed_users_count": len(self.telegram_allowed_user_ids),
             "daily_shorts_target": self.daily_shorts_target,

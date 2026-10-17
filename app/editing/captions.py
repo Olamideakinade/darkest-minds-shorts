@@ -33,12 +33,12 @@ class CaptionCue:
 
 
 class CaptionGenerator:
-    """Generates standard SRT sidecars and rendered transparent PNG caption overlays for Shorts."""
+    """Generates standard SRT sidecars and synchronized phrase cues for Shorts."""
 
     WIDTH = 1080
     HEIGHT = 1920
-    # Safe zone Y position for YouTube Shorts (strictly below central visual sweet-spot y=300-1500)
-    CAPTION_Y = 1560
+    # Safe zone Y position for YouTube Shorts (above bottom YouTube metadata and below visual center)
+    CAPTION_Y = 1380
 
     def __init__(self) -> None:
         self.font = self._load_bold_font(38)
@@ -49,8 +49,9 @@ class CaptionGenerator:
         word_timestamps: List[WordTimestamp],
         output_dir: Path,
         words_per_cue: int = 4,
+        render_cards: bool = True,
     ) -> Tuple[Path, List[CaptionCue]]:
-        """Group word timestamps into natural phrases, generate SRT, and render PNG overlays."""
+        """Group word timestamps into natural phrases, generate SRT sidecar, and timing manifest."""
         captions_dir = output_dir / "captions"
         captions_dir.mkdir(parents=True, exist_ok=True)
         srt_path = output_dir / "captions.srt"
@@ -60,32 +61,34 @@ class CaptionGenerator:
         # 1. Write standard SRT sidecar file
         self._write_srt_file(cues, srt_path)
 
-        # 2. Render transparent PNG overlay for each caption cue
-        for cue in cues:
-            card_filename = f"caption_{cue.index:03d}.png"
-            card_path = captions_dir / card_filename
-            self._render_caption_card(cue.text, card_path)
-            cue.overlay_path = card_path
+        # 2. Render PNG card overlays ONLY if explicitly requested (preserves disk I/O)
+        if render_cards:
+            for cue in cues:
+                card_filename = f"caption_{cue.index:03d}.png"
+                card_path = captions_dir / card_filename
+                self._render_caption_card(cue.text, card_path)
+                cue.overlay_path = card_path
 
         # 3. Save timing manifest
         manifest_path = captions_dir / "manifest.json"
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump([c.to_dict() for c in cues], f, indent=2)
 
-        logger.info(f"Generated {len(cues)} synchronized caption overlays and SRT sidecar: {srt_path.name}")
+        logger.info(f"Generated {len(cues)} synchronized caption cues and SRT sidecar: {srt_path.name}")
         return srt_path, cues
 
     def _group_words_into_cues(
         self, word_timestamps: List[WordTimestamp], words_per_cue: int = 4
     ) -> List[CaptionCue]:
-        """Group words into high-impact spoken chunks (3-5 words)."""
+        """Group words into high-impact spoken chunks (3-5 words) respecting natural pauses."""
         if not word_timestamps:
             return []
 
         cues: List[CaptionCue] = []
         current_words: List[str] = []
-        cue_start = word_timestamps[0].start_sec
+        cue_start = max(0.0, word_timestamps[0].start_sec)
         cue_index = 1
+        last_end = 0.0
 
         for idx, wt in enumerate(word_timestamps):
             current_words.append(wt.word)
@@ -94,20 +97,25 @@ class CaptionGenerator:
             is_comma_break = wt.word.endswith((",", ";", ":", "—")) and len(current_words) >= 3
 
             if len(current_words) >= words_per_cue or is_end_of_sentence or is_comma_break or idx == len(word_timestamps) - 1:
-                cue_text = " ".join(current_words)
-                cue_end = wt.end_sec
+                cue_text = " ".join(current_words).strip()
+                cue_end = max(cue_start + 0.1, wt.end_sec)
+                # Ensure monotonic timing
+                if cue_start < last_end:
+                    cue_start = last_end
+
                 cues.append(
                     CaptionCue(
                         index=cue_index,
                         text=cue_text,
-                        start_sec=cue_start,
-                        end_sec=cue_end,
+                        start_sec=round(cue_start, 3),
+                        end_sec=round(cue_end, 3),
                     )
                 )
+                last_end = cue_end
                 cue_index += 1
                 current_words = []
                 if idx + 1 < len(word_timestamps):
-                    cue_start = word_timestamps[idx + 1].start_sec
+                    cue_start = max(last_end, word_timestamps[idx + 1].start_sec)
 
         return cues
 
@@ -116,15 +124,11 @@ class CaptionGenerator:
         img = Image.new("RGBA", (self.WIDTH, self.HEIGHT), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
 
-        # Clean text
         clean_text = text.strip().upper()
-
-        # Measure text width using font
         bbox = draw.textbbox((0, 0), clean_text, font=self.font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
 
-        # Calculate pill bounds
         pad_x = 40
         pad_y = 20
         pill_w = min(text_w + pad_x * 2, self.WIDTH - 120)
@@ -132,7 +136,6 @@ class CaptionGenerator:
         pill_x = (self.WIDTH - pill_w) // 2
         pill_y = self.CAPTION_Y
 
-        # Draw translucent black background pill with gold outline
         draw.rounded_rectangle(
             [pill_x, pill_y, pill_x + pill_w, pill_y + pill_h],
             radius=18,
@@ -141,11 +144,9 @@ class CaptionGenerator:
             width=2,
         )
 
-        # Center text inside pill
         tx = pill_x + (pill_w - text_w) // 2
         ty = pill_y + (pill_h - text_h) // 2 - 4
 
-        # Drop shadow + White text
         draw.text((tx + 2, ty + 2), clean_text, font=self.font, fill=(0, 0, 0, 240))
         draw.text((tx, ty), clean_text, font=self.font, fill=(255, 255, 255, 255))
 
@@ -168,7 +169,9 @@ class CaptionGenerator:
         hrs = int(seconds // 3600)
         mins = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
-        millis = int((seconds - int(seconds)) * 1000)
+        millis = int(round((seconds - int(seconds)) * 1000))
+        if millis >= 1000:
+            millis = 999
         return f"{hrs:02d}:{mins:02d}:{secs:02d},{millis:03d}"
 
     @staticmethod

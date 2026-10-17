@@ -176,7 +176,8 @@ def test_developer_scene_synthesizer_renders_1080x1920():
         assert conf_path.exists()
 
 
-def test_publishing_safety_guard_and_kill_switch(temp_db):
+def test_publishing_safety_guard_and_kill_switch(temp_db, monkeypatch):
+    monkeypatch.setattr(config, "youtube_publish_mode", "private_test")
     safety = PublishingSafetyGuard(database=temp_db)
 
     with tempfile.NamedTemporaryFile(suffix=".mp4") as f_vid:

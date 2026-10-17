@@ -16,16 +16,28 @@ def utc_now_iso() -> str:
 
 
 class JobState(str, Enum):
-    """Explicit job lifecycle states."""
+    """Explicit job lifecycle states adhering to Stage 10 pipeline specification."""
     QUEUED = "QUEUED"
     RESEARCHING = "RESEARCHING"
     SCRIPTING = "SCRIPTING"
+    GENERATING_ASSETS = "GENERATING_ASSETS"
+    EDITING = "EDITING"
+    RENDERING = "RENDERING"
+    QUALITY_CHECK = "QUALITY_CHECK"
+    READY_TO_SCHEDULE = "READY_TO_SCHEDULE"
+    SCHEDULED = "SCHEDULED"
+    PUBLISHING = "PUBLISHING"
+    PUBLISHED = "PUBLISHED"
+    PUBLISH_FAILED = "PUBLISH_FAILED"
+    REVIEW_REQUIRED = "REVIEW_REQUIRED"
+    REJECTED = "REJECTED"
+
+    # Backward compatibility states
     NARRATING = "NARRATING"
     ASSEMBLING = "ASSEMBLING"
     QA = "QA"
     READY = "READY"
     UPLOADING = "UPLOADING"
-    PUBLISHED = "PUBLISHED"
     FAILED = "FAILED"
     RETRYING = "RETRYING"
     CANCELLED = "CANCELLED"
@@ -37,7 +49,7 @@ class Job:
     """Core production job record."""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     title: str = ""
-    niche: str = "Strange History & Unsolved Mysteries"
+    niche: str = "Unsolved Mysteries & Strange Disappearances"
     state: JobState = JobState.QUEUED
     current_stage: str = "init"
     payload: Dict[str, Any] = field(default_factory=dict)
@@ -322,10 +334,15 @@ class FactualClaim:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     script_id: str = ""
     claim_text: str = ""
-    verification_status: str = "UNVERIFIED"  # VERIFIED, UNVERIFIED, SPECULATIVE
+    verification_status: str = "UNVERIFIED"  # VERIFIED, UNSUPPORTED, CONFLICTED, FAILED, SPECULATIVE
     sources_checked: List[str] = field(default_factory=list)
+    source_url: str = ""
+    source_title: str = ""
+    evidence_passage: str = ""
+    conflicting_evidence: str = ""
     notes: str = ""
     is_flagged: bool = False
+    retrieval_timestamp: str = field(default_factory=utc_now_iso)
     created_at: str = field(default_factory=utc_now_iso)
 
     def to_dict(self) -> Dict[str, Any]:

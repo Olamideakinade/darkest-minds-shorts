@@ -41,61 +41,90 @@ class CompetitorProfile:
         return asdict(self)
 
 
-# Verified developer culture creators with distinct formats
-CURATED_DEV_COMPETITORS: List[CompetitorProfile] = [
+# Verified dark storytelling and mystery creators with proven high-retention formats
+CURATED_MYSTERY_COMPETITORS: List[CompetitorProfile] = [
     CompetitorProfile(
-        handle="@Fireship",
+        handle="@MrBallen",
         platform="youtube",
-        profile_url="https://youtube.com/@Fireship",
-        niche="tech_commentary_and_developer_news",
+        profile_url="https://youtube.com/@MrBallen",
+        niche="strange_dark_and_mysterious",
         posting_frequency="3_per_week",
-        primary_formats=["Code Report 60s", "100 Seconds of Code", "Dev Memes"],
-        observed_editing_style="Extreme high cut density (1.2s-2.0s), kinetic zooms, rapid punchlines, green-screen memes.",
-        public_subscriber_or_follower_count=3200000,
-        recent_public_topics=["AI agent drama", "JavaScript framework fatigue", "Linux kernel bugs"],
-        strengths=["Immediate hook in <1 second", "Ironclad developer credibility", "Topical velocity"],
-        saturation_risks=["High visual noise can alienate beginners", "Format imitation is crowded"],
+        primary_formats=["Top 3 Mysterious Disappearances", "Places You Can't Go", "Stories That Sound Fake But Are Real"],
+        observed_editing_style="Immediate hook in <1.5s, conversational suspense, high narrative tension, slow camera push-ins, dramatic silent pauses.",
+        public_subscriber_or_follower_count=9800000,
+        recent_public_topics=["Dyatlov pass theories", "Unsolved national park vanishings", "Bizarre survival stories"],
+        strengths=["Unmatched narrative storytelling", "Psychological immersion", "High audience retention"],
+        saturation_risks=["Over-covered mainstream cases; demands fresh, lesser-known forgotten cases"],
     ),
     CompetitorProfile(
-        handle="@t3dotgg",
+        handle="@Wendigoon",
         platform="youtube",
-        profile_url="https://youtube.com/@t3dotgg",
-        niche="developer_opinion_and_engineering_culture",
-        posting_frequency="daily",
-        primary_formats=["Hot Takes", "Library Critiques", "Full-Stack Dev Rants"],
-        observed_editing_style="Authentic screen-focused cuts, real GitHub repo audits, direct camera/screen split.",
-        public_subscriber_or_follower_count=450000,
-        recent_public_topics=["React server components", "Next.js updates", "Why junior devs struggle"],
-        strengths=["Deep technical honesty", "High comment engagement and debates"],
-        saturation_risks=["Heavy reliance on creator personality (less faceless-friendly)"],
+        profile_url="https://youtube.com/@Wendigoon",
+        niche="internet_rabbit_holes_and_unexplained_mysteries",
+        posting_frequency="weekly",
+        primary_formats=["Mystery Deep Dives", "Unsolved Cold Cases", "Cryptic Internet Rabbit Holes"],
+        observed_editing_style="Archival photographs, case evidence document overlays, eerie ambient audio drones, philosophical cliffhangers.",
+        public_subscriber_or_follower_count=3500000,
+        recent_public_topics=["The Lead Masks of Vintém Hill", "Cicada 3301", "The Missing Yuba County Five"],
+        strengths=["Deep audience trust", "Intellectual curiosity", "Massive comment section debate"],
+        saturation_risks=["Long-form format (often >1 hour); leaves massive opportunity for fast, punchy 30s-45s vertical Shorts"],
     ),
     CompetitorProfile(
-        handle="@NeetCode",
+        handle="@Lemmino",
         platform="youtube",
-        profile_url="https://youtube.com/@NeetCode",
-        niche="coding_tutorials_and_career_humour",
-        posting_frequency="3_per_week",
-        primary_formats=["LeetCode in 60s", "Tech Interview Realities", "Algorithm Breakdown"],
-        observed_editing_style="Clean code annotations, animated pointer arrows, calm deadpan comedic timing.",
-        public_subscriber_or_follower_count=980000,
-        recent_public_topics=["Two Sum explained simply", "Big O notation in 30 seconds", "FAANG interview traps"],
-        strengths=["Highly bookmarkable/shareable educational value", "Deadpan humor resonates with engineers"],
-        saturation_risks=["Standard interview questions can become repetitive"],
+        profile_url="https://youtube.com/@Lemmino",
+        niche="cinematic_investigative_mysteries",
+        posting_frequency="monthly",
+        primary_formats=["The Disappearance of...", "Forensic Timeline Reconstruction", "Unsolved Enigmas"],
+        observed_editing_style="Minimalist dark cinematography, historical evidence maps, stark typography, cold objective narration.",
+        public_subscriber_or_follower_count=5400000,
+        recent_public_topics=["The Dyatlov Pass Mystery", "The Mary Celeste", "Jack the Ripper Forensic Analysis"],
+        strengths=["World-class production value", "Credible factual rigor", "Cinematic dark mood"],
+        saturation_risks=["Extremely infrequent uploads (1-2 videos per year); audience craves consistent high-quality shorts"],
     ),
     CompetitorProfile(
-        handle="@DevHumor",
-        platform="instagram",
-        profile_url="https://instagram.com/devhumor",
-        niche="developer_humour",
+        handle="@Dark5Docs",
+        platform="youtube",
+        profile_url="https://youtube.com/@Dark5Docs",
+        niche="dark_rankings_and_classified_countdowns",
+        posting_frequency="weekly",
+        primary_formats=["Top 5 Classified Discoveries", "5 Most Dangerous Forbidden Zones", "Deep Sea Anomalies Ranked"],
+        observed_editing_style="Pacing build from #5 to #1, deep sub-bass sound design, ominous drone music, dark atmospheric imagery, glowing text countdown overlays.",
+        public_subscriber_or_follower_count=2500000,
+        recent_public_topics=["Forbidden Cold War bases", "Deepest ocean anomalies", "Deadliest radioactive zones"],
+        strengths=["Top-tier countdown structure", "Ominous suspense sound design", "High viral sharing"],
+        saturation_risks=["Needs faster vertical shorts pacing (<35s) with kinetic animated captions"],
+    ),
+    CompetitorProfile(
+        handle="@UnveilMedia",
+        platform="youtube",
+        profile_url="https://youtube.com/@UnveilMedia",
+        niche="extreme_danger_rankings_and_survival",
         posting_frequency="daily",
-        primary_formats=["Relatable Confessions", "Expectation vs Reality", "Friday Deploy Memes"],
-        observed_editing_style="Text message screenshots, terminal error screen captures, split comparisons.",
-        public_subscriber_or_follower_count=1200000,
-        recent_public_topics=["Junior vs Senior PR reviews", "Deploying on Friday", "CSS centering jokes"],
-        strengths=["Broad relatable appeal across all skill levels", "High share-to-friend ratio"],
-        saturation_risks=["Centering div jokes and semi-colon memes are completely saturated"],
+        primary_formats=["Top 3 Places Humans Cannot Enter", "Ranking Deadliest Islands", "Zero Survival Zones"],
+        observed_editing_style="Explosive 1.5s hook, #3 to #1 countdown progression, high stakes survival contrast, glassmorphic ranking tags, punchy cliffhanger CTA.",
+        public_subscriber_or_follower_count=1800000,
+        recent_public_topics=["Snake Island", "North Sentinel Island", "Chernobyl Red Forest"],
+        strengths=["Hyper-optimized Shorts retention", "Extreme hook curiosity", "Rapid comment debates"],
+        saturation_risks=["Often uses generic stock; bespoke cinematic treatment wins instantly"],
+    ),
+    CompetitorProfile(
+        handle="@Top5Unknowns",
+        platform="youtube",
+        profile_url="https://youtube.com/@Top5Unknowns",
+        niche="creepy_unexplained_countdowns",
+        posting_frequency="2_per_week",
+        primary_formats=["5 Forbidden Places", "Unexplained Disappearances Ranked", "Terrifying Discoveries"],
+        observed_editing_style="Dark ambient background music, slow reveal from least to most terrifying, stark typographic count tags.",
+        public_subscriber_or_follower_count=2100000,
+        recent_public_topics=["Forbidden caves", "Deadliest deep-sea trenches", "Forgotten bunker systems"],
+        strengths=["Classic countdown appeal", "Broad demographic intrigue"],
+        saturation_risks=["Pacing can be slow; our 30s vertical formula outperforms in Shorts algorithm"],
     ),
 ]
+
+# Aliased for backward compatibility with existing tests
+CURATED_DEV_COMPETITORS = CURATED_MYSTERY_COMPETITORS
 
 
 class CompetitorIntelligence:
@@ -144,16 +173,19 @@ class CompetitorIntelligence:
     def evaluate_format_saturation(self, topic: str) -> Dict[str, Any]:
         """Assess whether a proposed topic or joke is saturated or fresh."""
         t = topic.lower()
-        saturated_keywords = ["center a div", "centering div", "missing semicolon", "html is a programming language"]
+        saturated_keywords = [
+            "center a div", "centering div", "missing semicolon", "html is a programming language",
+            "bermuda triangle", "loch ness", "flat earth", "generic ghost story", "aliens built pyramids",
+        ]
         is_saturated = any(k in t for k in saturated_keywords)
 
         return {
             "topic": topic,
             "is_saturated": is_saturated,
             "recommendation": (
-                "Saturated format: reframe into a concrete modern incident (e.g., flexbox overflow bug in Safari) or pivot to an authentic confession."
+                "Saturated format: over-covered cliché. Pivot to a lesser-known documented case (e.g. Lead Masks, Yuba County Five, Flannan Isle)."
                 if is_saturated
-                else "Fresh opportunity: strong relevance with low cliché risk."
+                else "Fresh opportunity: high curiosity with low cliché risk."
             ),
         }
 

@@ -122,6 +122,15 @@ class AutonomousScheduler:
                 if decision_res.job_id:
                     results["job_enqueued"] = True
                     results["selected_job_id"] = decision_res.job_id
+                    try:
+                        from app.telegram.notifier import notifier
+                        notifier.notify_opportunity_discovered(
+                            topic=decision_res.opportunity.get("topic", "Trending Mystery") if decision_res.opportunity else "New Opportunity",
+                            score=decision_res.opportunity.get("opportunity_score", 90.0) if decision_res.opportunity else 90.0,
+                            angle=decision_res.rationale
+                        )
+                    except Exception:
+                        pass
 
             # Process next job in queue if any exist
             processed_job = self.orchestrator.process_next_job()
@@ -171,8 +180,14 @@ class AutonomousScheduler:
         print(f"  • Publishing Mode:       {config.youtube_publish_mode.upper()}")
         print(f"  • Max Daily Uploads:     {config.max_daily_uploads}")
         print("  • NOTE: Mac must remain running and awake for scheduled local execution.")
-        print("  • Press Ctrl+C to stop cleanly.")
         print("=" * 70)
+
+        try:
+            from app.telegram.notifier import notifier
+            hw = inspect_hardware()
+            notifier.notify_startup({"hardware": {"free_disk_gb": hw.free_disk_gb}})
+        except Exception:
+            pass
 
         iterations = 0
         try:

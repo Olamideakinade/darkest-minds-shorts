@@ -1,0 +1,71 @@
+name: Darkest Minds 101 — 24/7 Autopilot Shorts Generator
+
+on:
+  schedule:
+    # Runs twice daily at peak algorithmic audience windows:
+    # 11:00 AM UTC (12:00 PM WAT / CET lunch break)
+    # 5:00 PM UTC (6:00 PM WAT / CET evening commute)
+    - cron: '0 11,17 * * *'
+  workflow_dispatch: # Allows 1-click manual trigger anytime from GitHub Web UI
+
+jobs:
+  autopilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install FFmpeg & Fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-liberation fonts-dejavu-core
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Restore YouTube Token from Secret
+        if: env.YOUTUBE_TOKEN_JSON != ''
+        env:
+          YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
+        run: |
+          mkdir -p data credentials
+          echo "$YOUTUBE_TOKEN_JSON" > data/youtube_token.json
+
+      - name: Execute Autonomous Research & Production Cycle
+        env:
+          APP_ENV: production
+          TIMEZONE: Africa/Lagos
+          MODEL_PROVIDER: gemini
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-flash-lite-latest
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          TTS_PROVIDER: edge-tts
+          TTS_VOICE: en-US-ChristopherNeural
+          YOUTUBE_PUBLISH_MODE: autonomous
+          YOUTUBE_DEFAULT_PRIVACY: public
+          AUTO_PUBLISH_ENABLED: true
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_USER_IDS: ${{ secrets.TELEGRAM_ALLOWED_USER_IDS }}
+        run: |
+          python app/main.py cycle
+
+      - name: Upload Output Video & Contact Sheet Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: latest-rendered-short
+          path: |
+            output/jobs/**/short_1080x1920.mp4
+            output/jobs/**/contact_sheet.jpg
+            data/mhide.db
+          retention-days: 7

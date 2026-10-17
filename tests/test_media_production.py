@@ -62,7 +62,7 @@ def test_narration_generation_and_audio_validation(test_db, tmp_path):
     assert result.audio_path.stat().st_size > 0
     assert result.duration_sec > 1.0
     assert len(result.word_timestamps) >= 10
-    assert result.provider in ("edge-tts", "macos-say")
+    assert result.provider in ("gemini-tts", "edge-tts", "macos-say")
 
     # Verify timestamps are monotonically non-decreasing
     for i in range(len(result.word_timestamps) - 1):
@@ -148,7 +148,7 @@ def test_asset_attribution_and_scene_synthesis(test_db, tmp_path):
         ],
     )
 
-    produced = service.produce_visual_scenes(job.id, story)
+    produced = service.produce_visual_scenes(job.id, story, output_dir=tmp_path)
     assert len(produced) == 4
     for p in produced:
         assert p.image_path.exists()

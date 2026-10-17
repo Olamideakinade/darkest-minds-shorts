@@ -38,6 +38,35 @@ class SceneSynthesizer:
         self.font_typewriter = self._load_typewriter_font(22, bold=True)
         self.font_typewriter_sm = self._load_typewriter_font(18, bold=False)
 
+    def render_scene_image(
+        self,
+        plan: ScenePlan,
+        background_image_path: Optional[Path] = None,
+    ) -> Image.Image:
+        """Render a specialized 1080x1920 editorial vertical frame as a PIL Image."""
+        if background_image_path and background_image_path.exists():
+            return self._render_archival_photo_scene(
+                photo_path=background_image_path,
+                headline=plan.kinetic_text or plan.visual_purpose.upper(),
+                topic=plan.narration_segment[:30],
+                scene_number=plan.scene_number,
+                badge_text=f"ARCHIVAL PHOTOGRAPH • SCENE {plan.scene_number:02d}",
+            )
+        elif plan.asset_type == "historical_map":
+            return self._render_historical_map_scene(plan)
+        elif plan.asset_type == "newspaper_headline":
+            return self._render_newspaper_scene(plan, background_image_path)
+        elif plan.asset_type == "police_dossier":
+            return self._render_police_dossier_scene(plan, background_image_path)
+        else:
+            return self._render_synthetic_editorial_scene(
+                scene_number=plan.scene_number,
+                topic=plan.narration_segment[:35],
+                headline=plan.kinetic_text,
+                narration_excerpt=plan.narration_segment,
+                mood=plan.visual_purpose,
+            )
+
     def compose_scene_from_plan(
         self,
         plan: ScenePlan,
@@ -46,30 +75,7 @@ class SceneSynthesizer:
     ) -> Path:
         """Compose a specialized 1080x1920 editorial vertical frame for a timeline scene plan."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if plan.asset_type == "historical_map":
-            canvas = self._render_historical_map_scene(plan)
-        elif plan.asset_type == "newspaper_headline":
-            canvas = self._render_newspaper_scene(plan, background_image_path)
-        elif plan.asset_type == "police_dossier":
-            canvas = self._render_police_dossier_scene(plan, background_image_path)
-        elif background_image_path and background_image_path.exists():
-            canvas = self._render_archival_photo_scene(
-                photo_path=background_image_path,
-                headline=plan.kinetic_text or plan.visual_purpose.upper(),
-                topic=plan.narration_segment[:30],
-                scene_number=plan.scene_number,
-                badge_text=f"ARCHIVAL PHOTOGRAPH • SCENE {plan.scene_number:02d}",
-            )
-        else:
-            canvas = self._render_synthetic_editorial_scene(
-                scene_number=plan.scene_number,
-                topic=plan.narration_segment[:35],
-                headline=plan.kinetic_text,
-                narration_excerpt=plan.narration_segment,
-                mood=plan.visual_purpose,
-            )
-
+        canvas = self.render_scene_image(plan, background_image_path)
         canvas.save(str(output_path), "PNG", quality=95)
         logger.debug(f"Composed {plan.asset_type} scene {plan.scene_number} -> {output_path.name}")
         return output_path
@@ -114,25 +120,19 @@ class SceneSynthesizer:
         with Image.open(photo_path) as raw_img:
             img = raw_img.convert("RGBA")
 
-        # Netflix / BBC grade framing: blurred, darkened full-bleed fill + centered sharp asset
+        # Netflix / BBC grade framing: full-bleed vertical cinematic composition
         canvas = self._fit_cinematic_vertical(img, self.WIDTH, self.HEIGHT)
-        draw = ImageDraw.Draw(canvas)
-
-        # Top badge
-        self._draw_header_badge(draw, badge_text)
-
-        # Compact headline banner (strictly above the focal area, y=185 to 260)
-        if headline:
-            self._draw_headline_banner(draw, headline, y_pos=185)
-
-        # Viewfinder corners
-        self._draw_viewfinder_corners(draw)
         return canvas.convert("RGB")
 
     def _render_historical_map_scene(self, plan: ScenePlan) -> Image.Image:
-        """Render high-tension 1911 Parisian investigation map with route vectors and coordinates."""
+        """Render high-tension cartographic investigation map with route vectors, tactical radar, and coordinates."""
         canvas = Image.new("RGBA", (self.WIDTH, self.HEIGHT), (15, 23, 42))
         draw = ImageDraw.Draw(canvas)
+
+        is_mona_lisa = any(
+            k in (plan.search_query or "").lower() or k in (plan.kinetic_text or "").lower() or k in (plan.narration_segment or "").lower()
+            for k in ("mona lisa", "peruggia", "louvre", "salon carre", "visconti")
+        )
 
         # Subtle cartographic coordinate grid
         grid_step = 80
@@ -145,61 +145,109 @@ class SceneSynthesizer:
         draw.rectangle([40, 100, self.WIDTH - 40, self.HEIGHT - 100], outline=self.PALETTE_GOLD_ACCENT, width=3)
         draw.rectangle([48, 108, self.WIDTH - 48, self.HEIGHT - 108], outline=(71, 85, 105), width=1)
 
-        # Stylized River Seine curve
-        seine_pts = [
-            (60, 1050), (220, 1000), (450, 930), (680, 880), (880, 850), (self.WIDTH - 60, 820)
-        ]
-        for idx in range(len(seine_pts) - 1):
-            p1, p2 = seine_pts[idx], seine_pts[idx + 1]
-            draw.line([p1, p2], fill=(44, 74, 110, 220), width=36)
-            draw.line([p1, p2], fill=(70, 115, 170, 200), width=14)
+        if is_mona_lisa:
+            # Stylized River Seine curve
+            seine_pts = [
+                (60, 1050), (220, 1000), (450, 930), (680, 880), (880, 850), (self.WIDTH - 60, 820)
+            ]
+            for idx in range(len(seine_pts) - 1):
+                p1, p2 = seine_pts[idx], seine_pts[idx + 1]
+                draw.line([p1, p2], fill=(44, 74, 110, 220), width=36)
+                draw.line([p1, p2], fill=(70, 115, 170, 200), width=14)
 
-        # Seine River label
-        draw.text((320, 960), "LA SEINE // COURS D'EAU", font=self.font_small, fill=(100, 140, 180, 220))
+            draw.text((320, 960), "LA SEINE // COURS D'EAU", font=self.font_small, fill=(100, 140, 180, 220))
 
-        # Louvre Palace footprint polygon
-        louvre_box = [280, 640, 800, 840]
-        draw.rectangle(louvre_box, fill=(30, 58, 138, 120), outline=self.PALETTE_GOLD_ACCENT, width=3)
-        # Cour Carrée inner courtyard
-        draw.rectangle([440, 680, 640, 800], fill=(15, 23, 42), outline=(71, 85, 105), width=2)
-        draw.text((310, 655), "PALAIS DU LOUVRE // SALON CARRÉ", font=self.font_badge, fill=self.PALETTE_GOLD_ACCENT)
+            # Louvre Palace footprint polygon
+            louvre_box = [280, 640, 800, 840]
+            draw.rectangle(louvre_box, fill=(30, 58, 138, 120), outline=self.PALETTE_GOLD_ACCENT, width=3)
+            draw.rectangle([440, 680, 640, 800], fill=(15, 23, 42), outline=(71, 85, 105), width=2)
+            draw.text((310, 655), "PALAIS DU LOUVRE // SALON CARRÉ", font=self.font_badge, fill=self.PALETTE_GOLD_ACCENT)
 
-        # Escape route vector: Salon Carré -> Escalier Visconti -> Cour Carrée -> Rue de Rivoli
-        escape_path = [
-            (380, 720), (410, 680), (480, 640), (520, 580), (580, 520), (740, 480)
-        ]
-        for i in range(len(escape_path) - 1):
-            pt1, pt2 = escape_path[i], escape_path[i + 1]
-            draw.line([pt1, pt2], fill=self.PALETTE_CRIMSON_ACCENT, width=5)
-            # Arrow markers
-            mid_x, mid_y = (pt1[0] + pt2[0]) // 2, (pt1[1] + pt2[1]) // 2
-            draw.ellipse([mid_x - 6, mid_y - 6, mid_x + 6, mid_y + 6], fill=self.PALETTE_CRIMSON_ACCENT)
+            escape_path = [(380, 720), (410, 680), (480, 640), (520, 580), (580, 520), (740, 480)]
+            for i in range(len(escape_path) - 1):
+                pt1, pt2 = escape_path[i], escape_path[i + 1]
+                draw.line([pt1, pt2], fill=self.PALETTE_CRIMSON_ACCENT, width=5)
+                mid_x, mid_y = (pt1[0] + pt2[0]) // 2, (pt1[1] + pt2[1]) // 2
+                draw.ellipse([mid_x - 6, mid_y - 6, mid_x + 6, mid_y + 6], fill=self.PALETTE_CRIMSON_ACCENT)
 
-        # Route vector label
-        draw.text((540, 540), "ITINÉRAIRE DE FUITE (ESCALIER VISCONTI)", font=self.font_small, fill=self.PALETTE_CRIMSON_ACCENT)
+            draw.text((540, 540), "ITINÉRAIRE DE FUITE (ESCALIER VISCONTI)", font=self.font_small, fill=self.PALETTE_CRIMSON_ACCENT)
+            pin_x, pin_y = 380, 720
+            draw.ellipse([pin_x - 18, pin_y - 18, pin_x + 18, pin_y + 18], outline=self.PALETTE_GOLD_ACCENT, width=3)
+            draw.ellipse([pin_x - 8, pin_y - 8, pin_x + 8, pin_y + 8], fill=self.PALETTE_CRIMSON_ACCENT)
 
-        # Beacon pin at Salon Carré
-        pin_x, pin_y = 380, 720
-        draw.ellipse([pin_x - 18, pin_y - 18, pin_x + 18, pin_y + 18], outline=self.PALETTE_GOLD_ACCENT, width=3)
-        draw.ellipse([pin_x - 8, pin_y - 8, pin_x + 8, pin_y + 8], fill=self.PALETTE_CRIMSON_ACCENT)
+            info_box = [80, 1150, self.WIDTH - 80, 1450]
+            draw.rounded_rectangle(info_box, radius=16, fill=(11, 15, 25, 220), outline=self.PALETTE_GOLD_ACCENT, width=2)
+            draw.text((110, 1175), "CARTOGRAPHIE JUDICIAIRE — PARIS 1ER ARRONDISSEMENT", font=self.font_small, fill=self.PALETTE_GOLD_ACCENT)
+            draw.line([(110, 1210), (self.WIDTH - 110, 1210)], fill=(71, 85, 105), width=2)
 
-        # Cartographic metadata panel in lower quadrant (above safe margin)
-        info_box = [80, 1150, self.WIDTH - 80, 1450]
-        draw.rounded_rectangle(info_box, radius=16, fill=(11, 15, 25, 220), outline=self.PALETTE_GOLD_ACCENT, width=2)
-        draw.text((110, 1175), "CARTOGRAPHIE JUDICIAIRE — PARIS 1ER ARRONDISSEMENT", font=self.font_small, fill=self.PALETTE_GOLD_ACCENT)
-        draw.line([(110, 1210), (self.WIDTH - 110, 1210)], fill=(71, 85, 105), width=2)
+            meta_rows = [
+                ("LIEU DU CRIME:", "Musée du Louvre, Salon Carré (1er Arr.)"),
+                ("POINT D'EXTRACTION:", "Escalier Visconti // Porte dérobée"),
+                ("DESTINATION CACHE:", "Rue de l'Hôpital Saint-Louis (10e Arr.)"),
+                ("COORDONNÉES:", "48°51'38\" N • 2°20'15\" E // ÉCHELLE 1:5000"),
+            ]
+            cy = 1230
+            for lbl, val in meta_rows:
+                draw.text((110, cy), lbl, font=self.font_small, fill=self.PALETTE_MUTED_GRAY)
+                draw.text((370, cy), val, font=self.font_small, fill=self.PALETTE_WHITE)
+                cy += 48
 
-        meta_rows = [
-            ("LIEU DU CRIME:", "Musée du Louvre, Salon Carré (1er Arr.)"),
-            ("POINT D'EXTRACTION:", "Escalier Visconti // Porte dérobée"),
-            ("DESTINATION CACHE:", "Rue de l'Hôpital Saint-Louis (10e Arr.)"),
-            ("COORDONNÉES:", "48°51'38\" N • 2°20'15\" E // ÉCHELLE 1:5000"),
-        ]
-        cy = 1230
-        for lbl, val in meta_rows:
-            draw.text((110, cy), lbl, font=self.font_small, fill=self.PALETTE_MUTED_GRAY)
-            draw.text((370, cy), val, font=self.font_small, fill=self.PALETTE_WHITE)
-            cy += 48
+        else:
+            # Authentic Archival Cartography for Darkest Minds 101 Historical Documentaries
+            # 1. Elegant subtle cartographic graticule (fine latitude / longitude lines)
+            for gy in range(400, 1100, 140):
+                draw.line([(80, gy), (self.WIDTH - 80, gy)], fill=(45, 55, 72, 120), width=1)
+                # Graticule latitude labels
+                lat_deg = 58 - (gy - 400) // 140
+                draw.text((88, gy + 4), f"{lat_deg:02d}°N", font=self.font_tiny if hasattr(self, "font_tiny") else self.font_small, fill=(100, 116, 139, 140))
+
+            for gx in range(160, self.WIDTH - 80, 180):
+                draw.line([(gx, 380), (gx, 1080)], fill=(45, 55, 72, 120), width=1)
+                lon_deg = 7 + (gx - 160) // 180
+                draw.text((gx + 4, 1060), f"{lon_deg:02d}°W", font=self.font_tiny if hasattr(self, "font_tiny") else self.font_small, fill=(100, 116, 139, 140))
+
+            # 2. Period Maritime Survey Outer Border
+            chart_box = [80, 380, self.WIDTH - 80, 1080]
+            draw.rectangle(chart_box, outline=(148, 163, 184, 160), width=2)
+            draw.rectangle([86, 386, self.WIDTH - 86, 1074], outline=self.PALETTE_GOLD_ACCENT, width=1)
+
+            # 3. Restrained Historical Location Pin & Label
+            pin_x, pin_y = self.WIDTH // 2, 700
+            # Antique brass marker
+            draw.ellipse([pin_x - 14, pin_y - 14, pin_x + 14, pin_y + 14], outline=self.PALETTE_GOLD_ACCENT, width=2)
+            draw.ellipse([pin_x - 6, pin_y - 6, pin_x + 6, pin_y + 6], fill=self.PALETTE_GOLD_ACCENT)
+            
+            # Period survey location tag
+            loc_label = plan.kinetic_text or (plan.search_query[:28] if plan.search_query else "DOCUMENTED SITE")
+            draw.text((pin_x - 140, pin_y + 28), loc_label.upper(), font=self.font_small, fill=self.PALETTE_WHITE)
+            draw.text((pin_x - 140, pin_y + 60), "HISTORICAL POSITION • SURVEYED", font=self.font_typewriter_sm, fill=self.PALETTE_GOLD_ACCENT)
+
+            # 4. Archival Scale Bar (Antique Nautical Miles)
+            scale_x, scale_y = 120, 1030
+            draw.line([(scale_x, scale_y), (scale_x + 240, scale_y)], fill=self.PALETTE_GOLD_ACCENT, width=3)
+            draw.line([(scale_x, scale_y - 6), (scale_x, scale_y + 6)], fill=self.PALETTE_GOLD_ACCENT, width=2)
+            draw.line([(scale_x + 120, scale_y - 4), (scale_x + 120, scale_y + 4)], fill=self.PALETTE_GOLD_ACCENT, width=1)
+            draw.line([(scale_x + 240, scale_y - 6), (scale_x + 240, scale_y + 6)], fill=self.PALETTE_GOLD_ACCENT, width=2)
+            draw.text((scale_x, scale_y + 8), "0", font=self.font_small, fill=self.PALETTE_MUTED_GRAY)
+            draw.text((scale_x + 105, scale_y + 8), "5 NM", font=self.font_small, fill=self.PALETTE_MUTED_GRAY)
+            draw.text((scale_x + 215, scale_y + 8), "10 NM", font=self.font_small, fill=self.PALETTE_MUTED_GRAY)
+
+            # Clean cartographic coordinates and record panel
+            info_box = [80, 1180, self.WIDTH - 80, 1440]
+            draw.rounded_rectangle(info_box, radius=16, fill=(15, 20, 30, 230), outline=self.PALETTE_GOLD_ACCENT, width=2)
+            draw.text((110, 1205), "NAUTICAL RECONNAISSANCE // EXPEDITION TELEMETRY", font=self.font_small, fill=self.PALETTE_GOLD_ACCENT)
+            draw.line([(110, 1240), (self.WIDTH - 110, 1240)], fill=(71, 85, 105), width=2)
+
+            meta_rows = [
+                ("CHART SECTOR:", "NORTH ATLANTIC // HEBRIDES BASIN"),
+                ("SURVEY POSITION:", "58°17' N • 07°35' W // EILEAN MÒR"),
+                ("ARCHIVAL DATUM:", "ADMIRALTY HYDROGRAPHIC SURVEY"),
+            ]
+            cy = 1260
+            for lbl, val in meta_rows:
+                draw.text((110, cy), lbl, font=self.font_small, fill=self.PALETTE_MUTED_GRAY)
+                draw.text((360, cy), val, font=self.font_small, fill=self.PALETTE_WHITE)
+                cy += 48
 
         # Compass Rose (Top Right)
         cx, cy = self.WIDTH - 130, 210
@@ -208,11 +256,6 @@ class SceneSynthesizer:
         draw.text((cx - 7, cy - 58), "N", font=self.font_badge, fill=self.PALETTE_GOLD_ACCENT)
         draw.text((cx - 5, cy + 40), "S", font=self.font_small, fill=self.PALETTE_MUTED_GRAY)
 
-        # Header Badge & Headline
-        self._draw_header_badge(draw, "CARTOGRAPHIE HISTORIQUE • PARIS 1911")
-        headline = plan.kinetic_text or "ESCALIER VISCONTI // L'EXTRACTION"
-        self._draw_headline_banner(draw, headline, y_pos=185)
-
         # Safe zone bottom gradient
         self._apply_bottom_vignette(canvas)
         return canvas.convert("RGB")
@@ -220,97 +263,163 @@ class SceneSynthesizer:
     def _render_police_dossier_scene(
         self, plan: ScenePlan, background_image_path: Optional[Path] = None
     ) -> Image.Image:
-        """Render high-tension vintage French Police judicial identity dossier with authentic typewriter records."""
+        """Render high-tension vintage investigative case dossier with authentic typewriter records."""
         canvas = Image.new("RGBA", (self.WIDTH, self.HEIGHT), (18, 22, 34))
         draw = ImageDraw.Draw(canvas)
+
+        is_mona_lisa = any(
+            k in (plan.search_query or "").lower() or k in (plan.kinetic_text or "").lower() or k in (plan.narration_segment or "").lower()
+            for k in ("mona lisa", "peruggia", "louvre", "salon carre", "visconti")
+        )
 
         # Background archival grid & paper styling
         draw.rectangle([40, 100, self.WIDTH - 40, self.HEIGHT - 100], outline=(71, 85, 105), width=2)
         draw.rectangle([50, 110, self.WIDTH - 50, self.HEIGHT - 110], outline=self.PALETTE_GOLD_ACCENT, width=1)
 
-        # Header Badge
-        self._draw_header_badge(draw, "PRÉFECTURE DE POLICE // IDENTITÉ JUDICIAIRE")
+        if is_mona_lisa:
 
-        # Headline
-        headline = plan.kinetic_text or "SUSPECT IDENTIFIED: VINCENZO PERUGGIA"
-        self._draw_headline_banner(draw, headline, y_pos=185)
+            card_box = [70, 275, self.WIDTH - 70, 1470]
+            draw.rounded_rectangle(card_box, radius=18, fill=(15, 23, 42, 230), outline=self.PALETTE_GOLD_ACCENT, width=2)
+            draw.text((105, 305), "RÉPUBLIQUE FRANÇAISE — DIRECTION DE LA SÛRETÉ", font=self.font_typewriter, fill=self.PALETTE_GOLD_ACCENT)
+            draw.line([(105, 340), (self.WIDTH - 105, 340)], fill=(71, 85, 105), width=2)
 
-        # Main Dossier File Card
-        card_box = [70, 275, self.WIDTH - 70, 1470]
-        draw.rounded_rectangle(card_box, radius=18, fill=(15, 23, 42, 230), outline=self.PALETTE_GOLD_ACCENT, width=2)
+            photo_box = [105, 365, 485, 845]
+            draw.rectangle(photo_box, fill=(11, 15, 25), outline=(148, 163, 184), width=3)
 
-        # Official stamp & file tab
-        draw.text((105, 305), "RÉPUBLIQUE FRANÇAISE — DIRECTION DE LA SÛRETÉ", font=self.font_typewriter, fill=self.PALETTE_GOLD_ACCENT)
-        draw.line([(105, 340), (self.WIDTH - 105, 340)], fill=(71, 85, 105), width=2)
+            mugshot_embedded = False
+            target_mugshot = background_image_path or Path("data/curated_assets/mona_lisa_1911/03_vincenzo_peruggia_mugshot.jpg")
+            if target_mugshot.exists():
+                try:
+                    with Image.open(target_mugshot) as m_img:
+                        m_crop = ImageOps.exif_transpose(m_img).convert("RGBA")
+                        m_scaled = self._crop_to_vertical(m_crop, 376, 476)
+                        canvas.paste(m_scaled, (107, 367), m_scaled)
+                        mugshot_embedded = True
+                except Exception as e:
+                    logger.debug(f"Failed to embed mugshot in dossier: {e}")
 
-        # Bertillon Photo Area or Embedded Archival Mugshot
-        photo_box = [105, 365, 485, 845]
-        draw.rectangle(photo_box, fill=(11, 15, 25), outline=(148, 163, 184), width=3)
+            if not mugshot_embedded:
+                draw.text((150, 580), "[FICHE PHOTOGRAPHIQUE]", font=self.font_small, fill=self.PALETTE_MUTED_GRAY)
 
-        mugshot_embedded = False
-        target_mugshot = background_image_path or Path("data/curated_assets/mona_lisa_1911/03_vincenzo_peruggia_mugshot.jpg")
-        if target_mugshot.exists():
-            try:
-                with Image.open(target_mugshot) as m_img:
-                    m_crop = ImageOps.exif_transpose(m_img).convert("RGBA")
-                    # Fit neatly in photo card
-                    m_scaled = self._crop_to_vertical(m_crop, 376, 476)
-                    canvas.paste(m_scaled, (107, 367), m_scaled)
-                    mugshot_embedded = True
-            except Exception as e:
-                logger.debug(f"Failed to embed mugshot in dossier: {e}")
+            draw.rectangle([105, 805, 485, 845], fill=(11, 15, 25, 230))
+            draw.text((120, 815), "FICHE SIGNALÉTIQUE BERTILLON", font=self.font_typewriter_sm, fill=self.PALETTE_GOLD_ACCENT)
 
-        if not mugshot_embedded:
-            draw.text((150, 580), "[FICHE PHOTOGRAPHIQUE]", font=self.font_small, fill=self.PALETTE_MUTED_GRAY)
+            mx = 525
+            my = 370
+            dossier_data = [
+                ("DOSSIER N°:", "1911-821-VOL"),
+                ("NOM:", "PERUGGIA"),
+                ("PRÉNOM:", "Vincenzo"),
+                ("NÉ LE:", "8 Octobre 1881"),
+                ("LIEU:", "Dumenza (Italie)"),
+                ("PROFESSION:", "Miroitier-Vitrier"),
+                ("STATUT:", "Ancien ouvrier Louvre"),
+                ("TAILLE:", "1m 60"),
+                ("PARTICULARITÉ:", "Moustache brune"),
+            ]
+            for label, val in dossier_data:
+                draw.text((mx, my), label, font=self.font_typewriter_sm, fill=self.PALETTE_MUTED_GRAY)
+                draw.text((mx + 175, my), val, font=self.font_typewriter, fill=self.PALETTE_WHITE)
+                my += 48
 
-        draw.rectangle([105, 805, 485, 845], fill=(11, 15, 25, 230))
-        draw.text((120, 815), "FICHE SIGNALÉTIQUE BERTILLON", font=self.font_typewriter_sm, fill=self.PALETTE_GOLD_ACCENT)
+            notes_box = [105, 875, self.WIDTH - 105, 1435]
+            draw.rounded_rectangle(notes_box, radius=12, fill=(11, 15, 25, 210), outline=(51, 65, 85), width=2)
+            draw.text((130, 895), "RAPPORT D'ENQUÊTE & CONSTATATIONS MATÉRIELLES", font=self.font_typewriter, fill=self.PALETTE_GOLD_ACCENT)
+            draw.line([(130, 930), (self.WIDTH - 130, 930)], fill=(51, 65, 85), width=1)
 
-        # Right-hand Typewriter Metadata Table
-        mx = 525
-        my = 370
-        dossier_data = [
-            ("DOSSIER N°:", "1911-821-VOL"),
-            ("NOM:", "PERUGGIA"),
-            ("PRÉNOM:", "Vincenzo"),
-            ("NÉ LE:", "8 Octobre 1881"),
-            ("LIEU:", "Dumenza (Italie)"),
-            ("PROFESSION:", "Miroitier-Vitrier"),
-            ("STATUT:", "Ancien ouvrier Louvre"),
-            ("TAILLE:", "1m 60"),
-            ("PARTICULARITÉ:", "Moustache brune"),
-        ]
-        for label, val in dossier_data:
-            draw.text((mx, my), label, font=self.font_typewriter_sm, fill=self.PALETTE_MUTED_GRAY)
-            draw.text((mx + 175, my), val, font=self.font_typewriter, fill=self.PALETTE_WHITE)
-            my += 48
+            report_lines = [
+                "• Le tableau 'La Joconde' a été décroché le lundi 21 août 1911.",
+                "• L'auteur portait la blouse blanche réglementaire des ouvriers.",
+                "• Le cadre de chêne sculpté a été abandonné dans l'escalier Visconti.",
+                "• L'œuvre est restée cachée 28 mois sous le plancher du suspect à Paris.",
+                "• Récupération effectuée à Florence en décembre 1913.",
+            ]
+            ry = 955
+            for r_line in report_lines:
+                wrapped = self._wrap_text(r_line, max_chars=44)
+                for w in wrapped:
+                    draw.text((135, ry), w, font=self.font_typewriter_sm, fill=(226, 232, 240))
+                    ry += 38
+                ry += 10
 
-        # Lower Section: Judicial Evidence & Testimony notes
-        notes_box = [105, 875, self.WIDTH - 105, 1435]
-        draw.rounded_rectangle(notes_box, radius=12, fill=(11, 15, 25, 210), outline=(51, 65, 85), width=2)
-        draw.text((130, 895), "RAPPORT D'ENQUÊTE & CONSTATATIONS MATÉRIELLES", font=self.font_typewriter, fill=self.PALETTE_GOLD_ACCENT)
-        draw.line([(130, 930), (self.WIDTH - 130, 930)], fill=(51, 65, 85), width=1)
+            stamp_box = [self.WIDTH - 380, 1260, self.WIDTH - 130, 1370]
+            draw.rectangle(stamp_box, outline=self.PALETTE_CRIMSON_ACCENT, width=4)
+            draw.text((self.WIDTH - 365, 1280), "PIÈCE À CONVICTION", font=self.font_stamp, fill=self.PALETTE_CRIMSON_ACCENT)
+            draw.text((self.WIDTH - 345, 1320), "PARIS • SÛRETÉ NATIONALE", font=self.font_typewriter_sm, fill=self.PALETTE_CRIMSON_ACCENT)
+        else:
+            # Atmospheric English Case Dossier for Darkest Minds 101 Unsolved Mysteries
 
-        report_lines = [
-            "• Le tableau 'La Joconde' a été décroché le lundi 21 août 1911.",
-            "• L'auteur portait la blouse blanche réglementaire des ouvriers.",
-            "• Le cadre de chêne sculpté a été abandonné dans l'escalier Visconti.",
-            "• L'œuvre est restée cachée 28 mois sous le plancher du suspect à Paris.",
-            "• Récupération effectuée à Florence en décembre 1913.",
-        ]
-        ry = 955
-        for r_line in report_lines:
-            wrapped = self._wrap_text(r_line, max_chars=44)
-            for w in wrapped:
-                draw.text((135, ry), w, font=self.font_typewriter_sm, fill=(226, 232, 240))
-                ry += 38
-            ry += 10
+            card_box = [70, 275, self.WIDTH - 70, 1470]
+            draw.rounded_rectangle(card_box, radius=18, fill=(15, 23, 42, 235), outline=self.PALETTE_GOLD_ACCENT, width=2)
+            draw.text((105, 305), "DARKEST MINDS INVESTIGATIVE ARCHIVES — INCIDENT DOSSIER", font=self.font_typewriter, fill=self.PALETTE_GOLD_ACCENT)
+            draw.line([(105, 340), (self.WIDTH - 105, 340)], fill=(71, 85, 105), width=2)
 
-        # Red Official Investigation Stamp
-        stamp_box = [self.WIDTH - 380, 1260, self.WIDTH - 130, 1370]
-        draw.rectangle(stamp_box, outline=self.PALETTE_CRIMSON_ACCENT, width=4)
-        draw.text((self.WIDTH - 365, 1280), "PIÈCE À CONVICTION", font=self.font_stamp, fill=self.PALETTE_CRIMSON_ACCENT)
-        draw.text((self.WIDTH - 345, 1320), "PARIS • SÛRETÉ NATIONALE", font=self.font_typewriter_sm, fill=self.PALETTE_CRIMSON_ACCENT)
+            # Evidentiary Photo Box
+            photo_box = [105, 365, 485, 845]
+            draw.rectangle(photo_box, fill=(11, 15, 25), outline=(148, 163, 184), width=3)
+
+            photo_embedded = False
+            if background_image_path and background_image_path.exists():
+                try:
+                    with Image.open(background_image_path) as p_img:
+                        p_crop = ImageOps.exif_transpose(p_img).convert("RGBA")
+                        p_scaled = self._crop_to_vertical(p_crop, 376, 476)
+                        canvas.paste(p_scaled, (107, 367), p_scaled)
+                        photo_embedded = True
+                except Exception as e:
+                    logger.debug(f"Failed to embed archival photo in mystery dossier: {e}")
+
+            if not photo_embedded:
+                draw.text((130, 580), "[EVIDENTIARY ARCHIVE PHOTO]", font=self.font_small, fill=self.PALETTE_MUTED_GRAY)
+
+            draw.rectangle([105, 805, 485, 845], fill=(11, 15, 25, 230))
+            draw.text((120, 815), f"EXHIBIT #{plan.scene_number:02d} • FORENSIC RECORD", font=self.font_typewriter_sm, fill=self.PALETTE_GOLD_ACCENT)
+
+            # Metadata Table
+            mx = 525
+            my = 370
+            query_label = (plan.search_query or plan.visual_purpose).replace("_", " ").title()[:20]
+            mystery_data = [
+                ("CASE FILE:", f"DM-101-CASE-{plan.scene_number:02d}"),
+                ("CATEGORY:", "UNRESOLVED ANOMALY"),
+                ("INCIDENT:", query_label),
+                ("STATUS:", "VANISHED / COLD CASE"),
+                ("EVIDENCE:", "PHYSICAL RECORD VERIFIED"),
+                ("TIMELINE:", "CORROBORATED LOG"),
+                ("RESOLUTION:", "OFFICIALLY UNEXPLAINED"),
+                ("ARCHIVE:", "DARKEST MINDS 101"),
+            ]
+            for label, val in mystery_data:
+                draw.text((mx, my), label, font=self.font_typewriter_sm, fill=self.PALETTE_MUTED_GRAY)
+                draw.text((mx + 175, my), val, font=self.font_typewriter, fill=self.PALETTE_WHITE)
+                my += 52
+
+            # Lower Section: Official Investigation Log
+            notes_box = [105, 875, self.WIDTH - 105, 1435]
+            draw.rounded_rectangle(notes_box, radius=12, fill=(11, 15, 25, 210), outline=(51, 65, 85), width=2)
+            draw.text((130, 895), "OFFICIAL INVESTIGATION RECORD & WITNESS LOG", font=self.font_typewriter, fill=self.PALETTE_GOLD_ACCENT)
+            draw.line([(130, 930), (self.WIDTH - 130, 930)], fill=(51, 65, 85), width=1)
+
+            # Render narration excerpt as official evidence log
+            narration_clean = plan.narration_segment.strip()
+            evidence_points = [
+                f"• {narration_clean}",
+                "• Forensic inspection revealed no signs of struggle or external intervention.",
+                "• All official inquiries ended without conclusive explanation or recovery.",
+            ]
+            ry = 955
+            for ep in evidence_points:
+                wrapped = self._wrap_text(ep, max_chars=44)
+                for w in wrapped:
+                    draw.text((135, ry), w, font=self.font_typewriter_sm, fill=(226, 232, 240))
+                    ry += 38
+                ry += 10
+
+            # Red Official Investigation Stamp
+            stamp_box = [self.WIDTH - 400, 1260, self.WIDTH - 110, 1370]
+            draw.rectangle(stamp_box, outline=self.PALETTE_CRIMSON_ACCENT, width=4)
+            draw.text((self.WIDTH - 385, 1280), "CLASSIFIED EVIDENCE", font=self.font_stamp, fill=self.PALETTE_CRIMSON_ACCENT)
+            draw.text((self.WIDTH - 380, 1320), "DARKEST MINDS 101 • ARCHIVES", font=self.font_typewriter_sm, fill=self.PALETTE_CRIMSON_ACCENT)
 
         # Safe zone bottom gradient
         self._apply_bottom_vignette(canvas)
@@ -320,17 +429,17 @@ class SceneSynthesizer:
     def _render_newspaper_scene(
         self, plan: ScenePlan, background_image_path: Optional[Path] = None
     ) -> Image.Image:
-        """Render vintage 1911 newspaper clipping with authentic newsprint tone, columns, and exhibit stamp."""
+        """Render vintage newspaper clipping with authentic newsprint tone, columns, and exhibit stamp."""
+        is_mona_lisa = any(
+            k in (plan.search_query or "").lower() or k in (plan.kinetic_text or "").lower() or k in (plan.narration_segment or "").lower()
+            for k in ("mona lisa", "peruggia", "louvre", "salon carre", "visconti")
+        )
+
         # If an authentic archival press image is provided, use cinematic vertical composite
         if background_image_path and background_image_path.exists():
             with Image.open(background_image_path) as pimg:
                 p_trans = ImageOps.exif_transpose(pimg).convert("RGBA")
             canvas = self._fit_cinematic_vertical(p_trans, self.WIDTH, self.HEIGHT)
-            draw = ImageDraw.Draw(canvas)
-            self._draw_header_badge(draw, "HISTORICAL PRESS ARCHIVE • 1911", outline_color=self.PALETTE_GOLD_ACCENT)
-            headline = plan.kinetic_text or "FRONT PAGE SENSATION: LA JOCONDE"
-            self._draw_headline_banner(draw, headline, y_pos=185)
-            self._apply_bottom_vignette(canvas)
             return canvas.convert("RGB")
 
         # Synthetic vintage broadsheet
@@ -341,51 +450,91 @@ class SceneSynthesizer:
         draw.rectangle([35, 35, self.WIDTH - 35, self.HEIGHT - 35], outline=(180, 165, 140), width=4)
         draw.rectangle([45, 45, self.WIDTH - 45, self.HEIGHT - 45], outline=(70, 60, 50), width=2)
 
-        # Masthead
-        draw.text((140, 95), "LE PETIT JOURNAL", font=self.font_masthead, fill=self.PALETTE_INK_BLACK)
-        draw.text((self.WIDTH - 420, 115), "ÉDITION DU MATIN • MARDI 22 AOÛT 1911", font=self.font_small, fill=(90, 80, 70))
-        draw.line([(60, 165), (self.WIDTH - 60, 165)], fill=self.PALETTE_INK_BLACK, width=4)
-        draw.line([(60, 173), (self.WIDTH - 60, 173)], fill=self.PALETTE_INK_BLACK, width=1)
+        if is_mona_lisa:
+            # Masthead
+            draw.text((140, 95), "LE PETIT JOURNAL", font=self.font_masthead, fill=self.PALETTE_INK_BLACK)
+            draw.text((self.WIDTH - 420, 115), "ÉDITION DU MATIN • MARDI 22 AOÛT 1911", font=self.font_small, fill=(90, 80, 70))
+            draw.line([(60, 165), (self.WIDTH - 60, 165)], fill=self.PALETTE_INK_BLACK, width=4)
+            draw.line([(60, 173), (self.WIDTH - 60, 173)], fill=self.PALETTE_INK_BLACK, width=1)
 
-        # Huge broadsheet headline
-        main_headline = plan.kinetic_text or "LA JOCONDE A DISPARU DU MUSÉE DU LOUVRE"
-        wrapped = self._wrap_text(main_headline, max_chars=28)
-        hy = 200
-        for line in wrapped[:3]:
-            draw.text((70, hy), line, font=self.font_large, fill=self.PALETTE_INK_BLACK)
-            hy += 55
+            # Huge broadsheet headline
+            main_headline = plan.kinetic_text or "LA JOCONDE A DISPARU DU MUSÉE DU LOUVRE"
+            wrapped = self._wrap_text(main_headline, max_chars=28)
+            hy = 200
+            for line in wrapped[:3]:
+                draw.text((70, hy), line, font=self.font_large, fill=self.PALETTE_INK_BLACK)
+                hy += 55
 
-        hy += 15
-        draw.line([(70, hy), (self.WIDTH - 70, hy)], fill=(120, 100, 80), width=2)
-        hy += 25
+            hy += 15
+            draw.line([(70, hy), (self.WIDTH - 70, hy)], fill=(120, 100, 80), width=2)
+            hy += 25
 
-        # Multi-column historical reporting
-        cols = [
-            (
-                "Le musée du Louvre a fermé ses portes après la découverte consternante. "
-                "Le cadre vide a été retrouvé dans l'escalier Visconti. L'administration judiciaire "
-                "interroge le personnel et les gardiens de nuit dans le plus grand secret.",
-                70, 480
-            ),
-            (
-                "M. Louis Béroud, peintre, s'étant présenté ce matin pour continuer son étude, "
-                "a constaté l'absence du chef-d'œuvre. Les gardiens crurent d'abord que le tableau "
-                "avait été transporté aux ateliers photographiques de la maison Braun.",
-                540, 480
-            ),
-        ]
-        for col_text, col_x, col_w in cols:
-            w_lines = self._wrap_text(col_text, max_chars=26)
-            cy = hy
-            for line in w_lines:
-                draw.text((col_x, cy), line, font=self.font_small, fill=(50, 45, 40))
-                cy += 34
+            cols = [
+                (
+                    "Le musée du Louvre a fermé ses portes après la découverte consternante. "
+                    "Le cadre vide a été retrouvé dans l'escalier Visconti. L'administration judiciaire "
+                    "interroge le personnel et les gardiens de nuit dans le plus grand secret.",
+                    70, 480
+                ),
+                (
+                    "M. Louis Béroud, peintre, s'étant présenté ce matin pour continuer son étude, "
+                    "a constaté l'absence du chef-d'œuvre. Les gardiens crurent d'abord que le tableau "
+                    "avait été transporté aux ateliers photographiques de la maison Braun.",
+                    540, 480
+                ),
+            ]
+            for col_text, col_x, col_w in cols:
+                w_lines = self._wrap_text(col_text, max_chars=26)
+                cy = hy
+                for line in w_lines:
+                    draw.text((col_x, cy), line, font=self.font_small, fill=(50, 45, 40))
+                    cy += 34
 
-        # Red investigation exhibit stamp in corner
-        stamp_box = [self.WIDTH - 440, 1150, self.WIDTH - 80, 1260]
-        draw.rectangle(stamp_box, outline=self.PALETTE_CRIMSON_ACCENT, width=4)
-        draw.text((self.WIDTH - 420, 1175), "PIÈCE D'ARCHIVE", font=self.font_stamp, fill=self.PALETTE_CRIMSON_ACCENT)
-        draw.text((self.WIDTH - 420, 1215), "RÉPUBLIQUE FRANÇAISE", font=self.font_small, fill=self.PALETTE_CRIMSON_ACCENT)
+            stamp_box = [self.WIDTH - 440, 1150, self.WIDTH - 80, 1260]
+            draw.rectangle(stamp_box, outline=self.PALETTE_CRIMSON_ACCENT, width=4)
+            draw.text((self.WIDTH - 420, 1175), "PIÈCE D'ARCHIVE", font=self.font_stamp, fill=self.PALETTE_CRIMSON_ACCENT)
+            draw.text((self.WIDTH - 420, 1215), "RÉPUBLIQUE FRANÇAISE", font=self.font_small, fill=self.PALETTE_CRIMSON_ACCENT)
+        else:
+            # Broadheet for Darkest Minds 101 mysteries
+            draw.text((120, 95), "THE INVESTIGATIVE CHRONICLE", font=self.font_masthead, fill=self.PALETTE_INK_BLACK)
+            draw.text((self.WIDTH - 440, 115), "SPECIAL DISPATCH • UNRESOLVED CASES DESK", font=self.font_small, fill=(90, 80, 70))
+            draw.line([(60, 165), (self.WIDTH - 60, 165)], fill=self.PALETTE_INK_BLACK, width=4)
+            draw.line([(60, 173), (self.WIDTH - 60, 173)], fill=self.PALETTE_INK_BLACK, width=1)
+
+            main_headline = plan.kinetic_text or "UNEXPLAINED DISAPPEARANCE BAFFLES INVESTIGATORS"
+            wrapped = self._wrap_text(main_headline, max_chars=28)
+            hy = 200
+            for line in wrapped[:3]:
+                draw.text((70, hy), line, font=self.font_large, fill=self.PALETTE_INK_BLACK)
+                hy += 55
+
+            hy += 15
+            draw.line([(70, hy), (self.WIDTH - 70, hy)], fill=(120, 100, 80), width=2)
+            hy += 25
+
+            col1_body = (
+                f"Authorities and search parties have reported baffling discoveries at the scene. "
+                f"{plan.narration_segment} Initial inquiries have left investigators with more questions than answers."
+            )
+            col2_body = (
+                "Forensic teams confirmed that personal effects remained undisturbed, yet no traces of the missing "
+                "parties could be uncovered. Official reports have classified the occurrence as unexplained."
+            )
+            cols = [
+                (col1_body, 70, 480),
+                (col2_body, 540, 480),
+            ]
+            for col_text, col_x, col_w in cols:
+                w_lines = self._wrap_text(col_text, max_chars=26)
+                cy = hy
+                for line in w_lines:
+                    draw.text((col_x, cy), line, font=self.font_small, fill=(50, 45, 40))
+                    cy += 34
+
+            stamp_box = [self.WIDTH - 440, 1150, self.WIDTH - 80, 1260]
+            draw.rectangle(stamp_box, outline=self.PALETTE_CRIMSON_ACCENT, width=4)
+            draw.text((self.WIDTH - 420, 1175), "PRESS ARCHIVE", font=self.font_stamp, fill=self.PALETTE_CRIMSON_ACCENT)
+            draw.text((self.WIDTH - 420, 1215), "DARKEST MINDS 101", font=self.font_small, fill=self.PALETTE_CRIMSON_ACCENT)
 
         self._apply_bottom_vignette(canvas)
         return canvas.convert("RGB")
@@ -404,8 +553,6 @@ class SceneSynthesizer:
             color = (217, 164, 65, alpha) if "revelation" in mood or "payoff" in mood else (30, 58, 138, alpha)
             draw.ellipse([center_x - r, center_y - r, center_x + r, center_y + r], fill=color)
 
-        badge_text = f"HISTORICAL DOSSIER • SCENE {scene_number:02d}"
-        self._draw_header_badge(draw, badge_text)
 
         # Full-height card extending to y=1480 (leaving zero awkward black empty void)
         card_box = [70, 240, self.WIDTH - 70, 1480]
@@ -429,7 +576,7 @@ class SceneSynthesizer:
             ("STATUS:", "OFFICIAL HISTORICAL INVESTIGATION"),
             ("EVIDENCE:", f"ARCHIVAL RECORD #{scene_number:02d}"),
             ("SUBJECT:", topic[:32]),
-            ("LOCATION:", "PARIS, FRANCE // MUSÉE DU LOUVRE"),
+            ("LOCATION:", "EVIDENTIARY ARCHIVE // UNRESOLVED LOCUS"),
         ]
         for lbl, val in meta_items:
             draw.text((110, cur_y), lbl, font=self.font_small, fill=self.PALETTE_MUTED_GRAY)
@@ -446,7 +593,6 @@ class SceneSynthesizer:
             qy += 44
 
         self._apply_bottom_vignette(canvas)
-        self._draw_viewfinder_corners(draw)
         return canvas.convert("RGB")
 
     # -------------------------------------------------------------------------
@@ -455,78 +601,39 @@ class SceneSynthesizer:
 
     @classmethod
     def _fit_cinematic_vertical(cls, img: Image.Image, target_w: int = 1080, target_h: int = 1920) -> Image.Image:
-        """Netflix / BBC documentary-grade vertical composition.
+        """BBC / Netflix documentary-grade full-bleed vertical composition.
         
-        1. Normalizes EXIF orientation to prevent rotated or inverted images.
-        2. Creates a blurred, darkened full-bleed atmospheric background layer (0% black void).
-        3. Centers the sharp original image in the visual sweet spot with drop shadow & border.
+        1. Normalizes EXIF orientation to prevent rotated images.
+        2. Fills the entire 1080x1920 vertical canvas seamlessly (0% black void, 0% floating boxes).
+        3. Centers the visual sweet-spot (slightly upper-biased for facial and focal clarity).
+        4. Applies subtle dark gradient overlays at top (for title safe zone) and bottom (for captions).
         """
         img = ImageOps.exif_transpose(img)
         img_w, img_h = img.size
 
-        # 1. Background layer: scale and crop to fill the entire 1080x1920 canvas
-        bg_scale = max(target_w / img_w, target_h / img_h)
-        bg_w = int(img_w * bg_scale)
-        bg_h = int(img_h * bg_scale)
-        bg_img = img.resize((bg_w, bg_h), Image.Resampling.LANCZOS)
+        # High-res vertical coverage: scale to fully cover 1080x1920
+        scale = max(target_w / img_w, target_h / img_h)
+        nw = int(round(img_w * scale))
+        nh = int(round(img_h * scale))
+        resized = img.resize((nw, nh), Image.Resampling.LANCZOS).convert("RGBA")
 
-        bg_x = (bg_w - target_w) // 2
-        bg_y = (bg_h - target_h) // 2
-        bg_canvas = bg_img.crop((bg_x, bg_y, bg_x + target_w, bg_y + target_h)).convert("RGBA")
+        # Upper-center weighted crop (0.42 bias frames horizons, portraits, and focal objects in sweet spot)
+        cx = max(0, min(nw - target_w, (nw - target_w) // 2))
+        cy = max(0, min(nh - target_h, int((nh - target_h) * 0.42)))
+        composite = resized.crop((cx, cy, cx + target_w, cy + target_h))
 
-        # Atmospheric Gaussian blur
-        bg_blurred = bg_canvas.filter(ImageFilter.GaussianBlur(radius=28))
-
-        # Darken background to 36% brightness so foreground pops and text is legible
-        bg_darkened = ImageEnhance.Brightness(bg_blurred).enhance(0.36)
-
-        # 2. Foreground layer: fit cleanly within the vertical frame
-        max_fg_w = target_w - 70  # 1010px
-        max_fg_h = 1200          # leaves top/bottom safe zones for badges and captions
-
-        scale = min(max_fg_w / img_w, max_fg_h / img_h)
-        fg_w = int(img_w * scale)
-        fg_h = int(img_h * scale)
-        fg_resized = img.resize((fg_w, fg_h), Image.Resampling.LANCZOS).convert("RGBA")
-
-        # Visual center: centered horizontally, placed between y=300 and y=1500
-        center_y_target = 880
-        fg_x = (target_w - fg_w) // 2
-        fg_y = max(300, center_y_target - fg_h // 2)
-
-        # Subtle drop shadow behind foreground
-        shadow_margin = 20
-        shadow_canvas = Image.new("RGBA", (fg_w + shadow_margin * 2, fg_h + shadow_margin * 2), (0, 0, 0, 0))
-        shadow_draw = ImageDraw.Draw(shadow_canvas)
-        shadow_draw.rounded_rectangle(
-            [shadow_margin - 4, shadow_margin - 4, fg_w + shadow_margin + 4, fg_h + shadow_margin + 4],
-            radius=12,
-            fill=(0, 0, 0, 180),
-        )
-        shadow_canvas = shadow_canvas.filter(ImageFilter.GaussianBlur(radius=12))
-
-        # Fine archival museum border (2px warm gold outline)
-        fg_bordered = fg_resized.copy()
-        fg_draw = ImageDraw.Draw(fg_bordered)
-        fg_draw.rectangle([0, 0, fg_w - 1, fg_h - 1], outline=(217, 164, 65, 140), width=2)
-
-        # Composite everything together
-        composite = bg_darkened.copy()
-        composite.paste(shadow_canvas, (fg_x - shadow_margin, fg_y - shadow_margin + 6), shadow_canvas)
-        composite.paste(fg_bordered, (fg_x, fg_y), fg_bordered)
-
-        # Apply top and bottom protective gradients
+        # Apply rich cinematic vignette overlays
         overlay = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 0))
         draw_ov = ImageDraw.Draw(overlay)
-        # Top gradient (0 to 320)
-        for y in range(320):
-            alpha = int(180 * (1.0 - (y / 320.0)))
-            draw_ov.line([(0, y), (target_w, y)], fill=(11, 15, 25, alpha))
-        # Bottom gradient (1450 to 1920)
-        for y in range(1450, target_h):
-            progress = (y - 1450) / 470.0
-            alpha = int(220 * progress)
-            draw_ov.line([(0, y), (target_w, y)], fill=(11, 15, 25, alpha))
+        # Top gradient for title readability (0 to 300)
+        for y in range(300):
+            alpha = int(140 * (1.0 - (y / 300.0)))
+            draw_ov.line([(0, y), (target_w, y)], fill=(8, 12, 20, alpha))
+        # Bottom gradient for subtitle readability (1320 to 1920)
+        for y in range(1320, target_h):
+            progress = (y - 1320) / 600.0
+            alpha = int(195 * progress)
+            draw_ov.line([(0, y), (target_w, y)], fill=(8, 12, 20, alpha))
 
         return Image.alpha_composite(composite, overlay)
 
@@ -547,7 +654,7 @@ class SceneSynthesizer:
         draw = ImageDraw.Draw(sheet)
 
         # Header Title
-        draw.text((25, 25), "MHIDE EDITORIAL CONTACT SHEET — PRODUCTION TIMELINE", font=self.font_medium, fill=self.PALETTE_GOLD_ACCENT)
+        draw.text((25, 25), "DARKEST MINDS 101 — PRODUCTION TIMELINE & SCENE AUDIT", font=self.font_medium, fill=self.PALETTE_GOLD_ACCENT)
         draw.line([(20, 70), (sheet_w - 20, 70)], fill=(51, 65, 85), width=2)
 
         for idx, fp in enumerate(valid_frames):

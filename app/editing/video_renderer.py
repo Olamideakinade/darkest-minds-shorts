@@ -76,6 +76,7 @@ class VideoRenderer:
         timeline: List[ScenePlan],
         caption_cues: List[CaptionCue],
         output_mp4: Path,
+        treatment: str = "treatment_a",
     ) -> VideoMetadata:
         """Render complete timeline with broadcast documentary motion graphics and audio design."""
         from app.editing.motion_graphics import motion_graphics_engine
@@ -87,6 +88,7 @@ class VideoRenderer:
                 timeline=timeline,
                 output_mp4=output_mp4,
                 caption_cues=caption_cues,
+                treatment=treatment,
             )
         except Exception as e:
             logger.warning(f"MotionGraphicsEngine rendering failed ({e}). Falling back to FFmpeg timeline renderer.")

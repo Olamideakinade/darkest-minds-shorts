@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  mhide-agent:
+    build: .
+    container_name: mhide_story_intelligence
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./credentials:/app/credentials
+      - ./logs:/app/logs
+    environment:
+      - APP_ENV=production
+      - AUTO_CLEANUP_ARTIFACTS=true

@@ -125,6 +125,22 @@ class AssetCollector:
                 artist = self._clean_html(metadata.get("Artist", {}).get("value", "Public Domain / Unknown"))
                 license_short = metadata.get("LicenseShortName", {}).get("value", "Public Domain")
                 source_desc = self._clean_html(metadata.get("ObjectName", {}).get("value", page.get("title", "Historical Archive")))
+                description = self._clean_html(metadata.get("ImageDescription", {}).get("value", ""))
+
+                # Reject obvious semantic mismatches, modern diagrams, or vector/hud assets
+                reject_terms = ("radar", "hud", "vector", "icon", "screenshot", "diagram", "logo", "futuristic", "infographic")
+                check_str = f"{source_desc} {description} {page.get('title', '')}".lower()
+                if any(term in check_str for term in reject_terms):
+                    logger.debug(f"Rejecting semantic mismatch asset: {page.get('title')}")
+                    continue
+
+                # Verify license is public domain or Creative Commons attribution
+                lic_low = license_short.lower()
+                is_pd = any(k in lic_low for k in ("public domain", "cc0", "pd-old", "no copyright"))
+                is_cc = any(k in lic_low for k in ("cc by", "cc-by", "attribution", "educational"))
+                if not (is_pd or is_cc):
+                    logger.debug(f"Rejecting non-permissive license '{license_short}' for asset {page.get('title')}")
+                    continue
 
                 # Download image
                 ext = "jpg" if "jpeg" in mime or "jpg" in mime else ("png" if "png" in mime else "webp")
@@ -149,14 +165,20 @@ class AssetCollector:
                     author=artist[:80],
                     license_name=license_short,
                     attribution_text=attribution,
-                    is_public_domain="public domain" in license_short.lower() or "cc0" in license_short.lower(),
+                    is_public_domain=is_pd,
+                    metadata={
+                        "license": license_short,
+                        "author": artist,
+                        "description": description[:200],
+                        "page_title": page.get("title", ""),
+                    },
                 )
 
                 # Save metadata cache
                 with open(meta_cache_file, "w", encoding="utf-8") as f_meta:
                     json.dump(asset.to_dict(), f_meta, indent=2)
 
-                logger.info(f"Discovered public-domain historical image for '{clean_query}': {dest_file.name} ({license_short})")
+                logger.info(f"Discovered authentic public-domain historical image for '{clean_query}': {dest_file.name} ({license_short})")
                 return asset
 
         except Exception as e:
@@ -166,10 +188,10 @@ class AssetCollector:
 
     @staticmethod
     def _sanitize_query(query: str) -> str:
-        """Strip filler words to create concise historical search keywords."""
-        # Remove common visual prompt adjectives
+        """Strip filler words and modern graphics tokens to create targeted historical archive search terms."""
+        # Strip modern visual tokens and prompts
         cleaned = re.sub(
-            r"\b(cinematic|vertical|9:16|shot|dramatic|lighting|moody|realistic|textures|high|resolution|photo|image)\b",
+            r"\b(cinematic|vertical|9:16|shot|dramatic|lighting|moody|realistic|textures|high|resolution|photo|image|radar|hud|neon|futuristic)\b",
             "",
             query,
             flags=re.IGNORECASE,

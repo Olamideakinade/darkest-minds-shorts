@@ -25,6 +25,63 @@ if TYPE_CHECKING:
     from app.editing.video_renderer import VideoMetadata
 
 
+class VideoClipStream:
+    """Streams 1080x1920 RGB frames sequentially from a moving video file via FFmpeg raw pipe."""
+
+    def __init__(self, clip_path: Path, width: int = 1080, height: int = 1920, fps: int = 30) -> None:
+        self.clip_path = clip_path
+        self.width = width
+        self.height = height
+        self.fps = fps
+        self.frame_len = width * height * 3
+        self.proc: Optional[subprocess.Popen] = None
+        self._start()
+
+    def _start(self) -> None:
+        cmd = [
+            config.ffmpeg_path,
+            "-stream_loop", "-1",
+            "-i", str(self.clip_path),
+            "-vf", f"scale={self.width}:{self.height}:force_original_aspect_ratio=increase,crop={self.width}:{self.height}",
+            "-r", str(self.fps),
+            "-f", "rawvideo",
+            "-pix_fmt", "rgb24",
+            "-"
+        ]
+        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def read_frame(self) -> Optional[Image.Image]:
+        if not self.proc or not self.proc.stdout:
+            return None
+        try:
+            chunks = []
+            bytes_read = 0
+            while bytes_read < self.frame_len:
+                chunk = self.proc.stdout.read(self.frame_len - bytes_read)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                bytes_read += len(chunk)
+            if bytes_read < self.frame_len:
+                return None
+            raw = b"".join(chunks) if len(chunks) > 1 else chunks[0]
+            return Image.frombytes("RGB", (self.width, self.height), raw)
+        except Exception:
+            return None
+
+    def close(self) -> None:
+        if self.proc:
+            try:
+                self.proc.terminate()
+                self.proc.wait(timeout=1.0)
+            except Exception:
+                try:
+                    self.proc.kill()
+                except Exception:
+                    pass
+            self.proc = None
+
+
 class MotionGraphicsEngine:
     """Renders broadcast-grade vertical documentary scenes with real motion graphics."""
 
@@ -33,10 +90,10 @@ class MotionGraphicsEngine:
     FPS = 30
 
     def __init__(self) -> None:
-        self.font_title = self._load_font(42, bold=True)
-        self.font_headline = self._load_font(34, bold=True)
-        self.font_sub = self._load_font(26, bold=True)
-        self.font_caption = self._load_font(22, bold=False)
+        self.font_title = self._load_font(44, bold=True)
+        self.font_headline = self._load_font(36, bold=True)
+        self.font_sub = self._load_font(36, bold=True)
+        self.font_caption = self._load_font(24, bold=False)
         self.font_mono = self._load_mono_font(20, bold=True)
         self.font_mono_sm = self._load_mono_font(16, bold=False)
         self._vignette_cache: Dict[Tuple[int, int], Image.Image] = {}
@@ -413,168 +470,75 @@ class MotionGraphicsEngine:
     def render_scene_frame(
         self,
         plan: ScenePlan,
-        img_src: Image.Image,
+        img_src: Optional[Image.Image],
         t_norm: float,       # 0.0 to 1.0 within scene
         t_global: float,     # global timeline seconds
         scene_rel_t: float,  # seconds into this scene
         caption_cues: Optional[List[CaptionCue]] = None,
+        treatment: str = "treatment_a",
+        is_moving_video: bool = False,
     ) -> Image.Image:
         """Render a single 1080x1920 frame for any timeline scene with motion & graphics."""
+        dev_asset_types = {
+            "code_editor", "terminal_window", "terminal_crash",
+            "split_comparison", "confession_card", "browser_preview", "kinetic_typography"
+        }
+        is_dev_scene = (
+            plan.asset_type.lower() in dev_asset_types or
+            any(k in (plan.visual_purpose or "").lower() for k in ("code", "terminal", "deploy", "confession", "split", "latency"))
+        )
+
+        # Developer Scenes: Delegate 100% to Multi-Layer Scene Graph
+        if is_dev_scene:
+            from app.editing.scene_graph import SceneGraphFactory
+            sg = SceneGraphFactory.create_scene_graph(plan, caption_cues, treatment=treatment)
+            scene_dur = max(0.001, plan.end_sec - plan.start_sec)
+            return sg.render_frame(scene_rel_t, t_global, scene_dur)
+
         motion = (plan.motion_type or "push_in").lower()
         purpose = (plan.visual_purpose or "discovery").lower()
 
-        # 1. Eased Camera Motion
-        if motion == "pull_back":
-            ease_p = 1.0 - math.pow(1.0 - t_norm, 2.2)
-            scale = 1.15 - 0.15 * ease_p
-            focal_x, focal_y = 0.50, 0.46
-        elif motion == "pan_right":
-            ease_p = 1.0 - math.pow(1.0 - t_norm, 2.0)
-            scale = 1.12
-            focal_x = 0.40 + 0.18 * ease_p
-            focal_y = 0.48
-        elif motion == "pan_down":
-            ease_p = 1.0 - math.pow(1.0 - t_norm, 2.0)
-            scale = 1.12
-            focal_x = 0.50
-            focal_y = 0.35 + 0.22 * ease_p
-        elif motion == "pan_up":
-            ease_p = 1.0 - math.pow(1.0 - t_norm, 2.0)
-            scale = 1.12
-            focal_x = 0.50
-            focal_y = 0.58 - 0.20 * ease_p
-        elif motion == "static_reveal":
-            scale = 1.00 + 0.03 * t_norm
-            focal_x, focal_y = 0.50, 0.50
-        else:  # default push_in
-            ease_p = 1.0 - math.pow(1.0 - t_norm, 2.5)
-            scale = 1.00 + 0.15 * ease_p
-            focal_x = 0.50
-            focal_y = 0.38 if purpose in ("hook", "suspect_intro") else 0.46
+        if is_moving_video and img_src is not None:
+            # Preserve original high-res moving footage without artificial static crop/zoom
+            frame = img_src.copy()
+            frame = self._apply_cinematic_vignette(frame, top_strength=120, bottom_strength=160)
+        else:
+            # 1. Eased Camera Motion
+            if motion == "pull_back":
+                ease_p = 1.0 - math.pow(1.0 - t_norm, 2.2)
+                scale = 1.15 - 0.15 * ease_p
+                focal_x, focal_y = 0.50, 0.46
+            elif motion == "pan_right":
+                ease_p = 1.0 - math.pow(1.0 - t_norm, 2.0)
+                scale = 1.12
+                focal_x = 0.40 + 0.18 * ease_p
+                focal_y = 0.48
+            elif motion == "pan_down":
+                ease_p = 1.0 - math.pow(1.0 - t_norm, 2.0)
+                scale = 1.12
+                focal_x = 0.50
+                focal_y = 0.35 + 0.22 * ease_p
+            elif motion == "pan_up":
+                ease_p = 1.0 - math.pow(1.0 - t_norm, 2.0)
+                scale = 1.12
+                focal_x = 0.50
+                focal_y = 0.58 - 0.20 * ease_p
+            elif motion == "static_reveal":
+                scale = 1.00 + 0.03 * t_norm
+                focal_x, focal_y = 0.50, 0.50
+            else:  # default push_in
+                ease_p = 1.0 - math.pow(1.0 - t_norm, 2.5)
+                scale = 1.00 + 0.15 * ease_p
+                focal_x = 0.50
+                focal_y = 0.38 if purpose in ("hook", "suspect_intro") else 0.46
 
-        # 2. Aspect-Ratio-Aware Full-Screen Framing with Vignette
-        frame = self._crop_and_scale_focal(img_src, scale, focal_x, focal_y)
-        frame = self._apply_cinematic_vignette(frame, top_strength=180, bottom_strength=210)
+            # 2. Aspect-Ratio-Aware Full-Screen Framing with Vignette
+            frame = self._crop_and_scale_focal(img_src, scale, focal_x, focal_y)
+            frame = self._apply_cinematic_vignette(frame, top_strength=140, bottom_strength=180)
+
         draw = ImageDraw.Draw(frame)
 
-        # 3. Kinetic Typography
-        if purpose == "hook":
-            if scene_rel_t >= 0.1:
-                fade_1 = min(1.0, (scene_rel_t - 0.1) / 0.3)
-                alpha_1 = int(255 * fade_1)
-                text_1 = "THE WORLD'S MOST FAMOUS PAINTING"
-                self._draw_cinematic_title(
-                    draw, text=text_1, y_pos=220, font=self.font_headline,
-                    color=(255, 255, 255, alpha_1), accent_bar=False,
-                )
-            if scene_rel_t >= 2.0:
-                punch_p = min(1.0, (scene_rel_t - 2.0) / 0.25)
-                alpha_2 = int(255 * punch_p)
-                text_2 = "VANISHED FROM THE LOUVRE."
-                self._draw_cinematic_title(
-                    draw, text=text_2, y_pos=275, font=self.font_title,
-                    color=(255, 255, 255, alpha_2), accent_bar=True, accent_color=(217, 164, 65, alpha_2),
-                )
-        elif plan.kinetic_text and plan.asset_type == "archival_photo":
-            if purpose not in ("suspect_intro", "infiltration", "payoff"):
-                if scene_rel_t >= 0.1:
-                    fade_k = min(1.0, (scene_rel_t - 0.1) / 0.3)
-                    alpha_k = int(255 * fade_k)
-                    self._draw_cinematic_title(
-                        draw, text=plan.kinetic_text.upper(), y_pos=220, font=self.font_headline,
-                        color=(255, 255, 255, alpha_k), accent_bar=True, accent_color=(217, 164, 65, alpha_k),
-                    )
-
-        # 4. Documentary Visual Callouts
-        if purpose == "discovery" or "peg" in (plan.kinetic_text or "").lower() or plan.sound_cue == "focus_click":
-            if scene_rel_t >= 0.8:
-                reticle_p = min(1.0, (scene_rel_t - 0.8) / 0.4)
-                peg_cx, peg_cy = 540, 780
-                radius = int(120 * reticle_p)
-                bracket_len = 28
-                gold_color = (217, 164, 65, int(230 * reticle_p))
-                white_color = (255, 255, 255, int(200 * reticle_p))
-
-                bx1, by1 = peg_cx - radius, peg_cy - radius
-                bx2, by2 = peg_cx + radius, peg_cy + radius
-
-                draw.line([(bx1, by1), (bx1 + bracket_len, by1)], fill=gold_color, width=3)
-                draw.line([(bx1, by1), (bx1, by1 + bracket_len)], fill=gold_color, width=3)
-                draw.line([(bx2, by1), (bx2 - bracket_len, by1)], fill=gold_color, width=3)
-                draw.line([(bx2, by1), (bx2, by1 + bracket_len)], fill=gold_color, width=3)
-                draw.line([(bx1, by2), (bx1 + bracket_len, by2)], fill=gold_color, width=3)
-                draw.line([(bx1, by2), (bx1, by2 - bracket_len)], fill=gold_color, width=3)
-                draw.line([(bx2, by2), (bx2 - bracket_len, by2)], fill=gold_color, width=3)
-                draw.line([(bx2, by2), (bx2 - bracket_len, by2)], fill=gold_color, width=3)
-
-                draw.line([(peg_cx - 12, peg_cy), (peg_cx + 12, peg_cy)], fill=white_color, width=2)
-                draw.line([(peg_cx, peg_cy - 12), (peg_cx, peg_cy + 12)], fill=white_color, width=2)
-
-                line_p = max(0.0, min(1.0, (scene_rel_t - 1.1) / 0.35))
-                if line_p > 0.0:
-                    ly_end = int(by2 + 30 * line_p)
-                    draw.line([(peg_cx, by2), (peg_cx, ly_end)], fill=gold_color, width=2)
-                    if line_p >= 0.8:
-                        tag_text = "[ 4 EMPTY WALL PEGS // SALON CARRÉ ]"
-                        bbox_tag = draw.textbbox((0, 0), tag_text, font=self.font_mono_sm)
-                        tag_w = (bbox_tag[2] - bbox_tag[0]) + 36
-                        tag_x = (self.WIDTH - tag_w) // 2
-                        tag_y = by2 + 32
-                        draw.rectangle(
-                            [tag_x, tag_y, tag_x + tag_w, tag_y + 36],
-                            fill=(11, 15, 25, 230), outline=gold_color, width=1,
-                        )
-                        draw.text((tag_x + 18, tag_y + 9), tag_text, font=self.font_mono_sm, fill=(248, 250, 252))
-
-            if scene_rel_t >= 1.6:
-                txt_p = min(1.0, (scene_rel_t - 1.6) / 0.3)
-                alpha_txt = int(255 * txt_p)
-                self._draw_cinematic_title(
-                    draw, text="AND NOBODY NOTICED.", y_pos=1460, font=self.font_title,
-                    color=(255, 255, 255, alpha_txt), accent_bar=True, accent_color=(225, 29, 72, alpha_txt),
-                )
-
-        elif purpose in ("suspect_intro", "infiltration") or plan.asset_type == "police_dossier":
-            if scene_rel_t >= 0.4:
-                slide_p = min(1.0, (scene_rel_t - 0.4) / 0.35)
-                ease_slide = 1.0 - math.pow(1.0 - slide_p, 3)
-                tag_x = int(-400 + (480 * ease_slide))
-                tag_y = 220
-                draw.rectangle([tag_x, tag_y, tag_x + 460, tag_y + 80], fill=(11, 15, 25, 230), outline=(217, 164, 65), width=2)
-                draw.line([(tag_x + 6, tag_y + 6), (tag_x + 6, tag_y + 74)], fill=(217, 164, 65), width=4)
-                draw.text((tag_x + 22, tag_y + 14), "SUSPECT: VINCENZO PERUGGIA", font=self.font_mono, fill=(255, 255, 255))
-                draw.text((tag_x + 22, tag_y + 44), "LOUVRE GLAZIER • WORE WHITE SMOCK", font=self.font_mono_sm, fill=(217, 164, 65))
-
-        elif purpose in ("tension", "reveal") or "year" in plan.narration_segment.lower() or "floorboard" in plan.narration_segment.lower():
-            if scene_rel_t >= 0.9:
-                tl_p = min(1.0, (scene_rel_t - 0.9) / 0.45)
-                line_w = int((self.WIDTH - 160) * tl_p)
-                ly = 1360
-                draw.rectangle([70, ly - 44, self.WIDTH - 70, ly + 14], fill=(11, 15, 25, 200), outline=(51, 65, 85), width=1)
-                draw.line([(80, ly), (80 + line_w, ly)], fill=(217, 164, 65), width=3)
-                draw.ellipse([74, ly - 6, 86, ly + 6], fill=(217, 164, 65))
-                draw.text((82, ly - 34), "AUG 21, 1911: UNHOOKED", font=self.font_mono_sm, fill=(0, 0, 0))
-                draw.text((80, ly - 36), "AUG 21, 1911: UNHOOKED", font=self.font_mono_sm, fill=(248, 250, 252))
-
-                if tl_p >= 0.8:
-                    mid_x = self.WIDTH - 180
-                    draw.ellipse([mid_x - 6, ly - 6, mid_x + 6, ly + 6], fill=(225, 29, 72))
-                    draw.text((mid_x - 168, ly - 34), "HIDDEN 2 YEARS IN PARIS", font=self.font_mono_sm, fill=(0, 0, 0))
-                    draw.text((mid_x - 170, ly - 36), "HIDDEN 2 YEARS IN PARIS", font=self.font_mono_sm, fill=(248, 250, 252))
-
-        elif purpose == "payoff":
-            if scene_rel_t >= 0.2:
-                fade_q = min(1.0, (scene_rel_t - 0.2) / 0.4)
-                alpha_q = int(255 * fade_q)
-                title_text = plan.kinetic_text or "THE PAYOFF"
-                if "mona lisa" in (plan.search_query or "").lower() or "mona lisa" in (plan.narration_segment or "").lower():
-                    title_text = "THE MOST FAMOUS FACE ON EARTH."
-                self._draw_cinematic_title(
-                    draw, text=title_text, y_pos=220, font=self.font_headline,
-                    color=(255, 255, 255, alpha_q), accent_bar=True, accent_color=(217, 164, 65, alpha_q),
-                )
-
-        # 5. Spoken Subtitles (Lower-Third, strictly within mobile-safe margins)
+        # 3. Spoken Subtitles (Determined first to detect collision)
         active_subtitle = ""
         if caption_cues:
             for cue in caption_cues:
@@ -582,11 +546,35 @@ class MotionGraphicsEngine:
                     active_subtitle = cue.text
                     break
         if not active_subtitle and plan.narration_segment:
-            if purpose != "hook" or scene_rel_t >= 2.0:
+            if purpose != "hook" or scene_rel_t >= 1.5:
                 active_subtitle = plan.narration_segment
 
+        # 4. Kinetic Typography / Countdown Badge
+        if plan.kinetic_text:
+            k_clean = plan.kinetic_text.strip().upper()
+            sub_clean = active_subtitle.strip().upper()
+            is_duplicate = k_clean in sub_clean or sub_clean in k_clean
+            is_countdown = any(marker in k_clean for marker in ("#", "RANK", "NUMBER", "TOP"))
+
+            # For countdown badges, stay visible throughout the scene beat with smooth in/out fades
+            max_display_t = max(2.2, (plan.duration_sec - 0.3)) if is_countdown else 2.2
+            if not is_duplicate and scene_rel_t <= max_display_t:
+                fade_in_dur = 0.35
+                fade_out_dur = 0.4
+                if scene_rel_t < fade_in_dur:
+                    fade_k = max(0.0, scene_rel_t / fade_in_dur)
+                elif scene_rel_t > (max_display_t - fade_out_dur):
+                    fade_k = max(0.0, (max_display_t - scene_rel_t) / fade_out_dur)
+                else:
+                    fade_k = 1.0
+                alpha_k = int(255 * fade_k)
+                if alpha_k > 0 and is_countdown:
+                    self._draw_countdown_badge(
+                        draw, text=k_clean, y_pos=220, alpha=alpha_k
+                    )
+
         if active_subtitle:
-            self._draw_subtitle_pill(draw, active_subtitle, y_pos=1620)
+            self._draw_subtitle_pill(draw, active_subtitle, y_pos=1380)
 
         return frame
 
@@ -597,10 +585,11 @@ class MotionGraphicsEngine:
         timeline: List[ScenePlan],
         output_mp4: Path,
         caption_cues: Optional[List[CaptionCue]] = None,
+        treatment: str = "treatment_a",
     ) -> Any:
         """Render complete vertical documentary Short from timeline with broadcast motion graphics."""
         output_mp4.parent.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Rendering full documentary Short via MotionGraphicsEngine ({len(timeline)} scenes) -> {output_mp4.name}...")
+        logger.info(f"Rendering full documentary Short via MotionGraphicsEngine ({len(timeline)} scenes, treatment={treatment}) -> {output_mp4.name}...")
         start_t = time.time()
 
         total_duration = self._get_media_duration(audio_path)
@@ -609,8 +598,36 @@ class MotionGraphicsEngine:
 
         scene_images = self._load_scene_images(timeline)
 
+        # Pre-instantiate Scene Graphs for Developer scenes to optimize render loop
+        from app.editing.scene_graph import SceneGraphFactory
+        dev_asset_types = {
+            "code_editor", "terminal_window", "terminal_crash",
+            "split_comparison", "confession_card", "browser_preview", "kinetic_typography"
+        }
+        dev_scene_graphs: Dict[int, Any] = {}
+        for p in timeline:
+            if (
+                p.asset_type.lower() in dev_asset_types or
+                any(k in (p.visual_purpose or "").lower() for k in ("code", "terminal", "deploy", "confession", "split", "latency"))
+            ):
+                dev_scene_graphs[p.scene_number] = SceneGraphFactory.create_scene_graph(
+                    p, caption_cues, treatment=treatment
+                )
+
         total_frames = int(round(total_duration * self.FPS))
         logger.info(f"Streaming {total_frames} frames @ {self.FPS} FPS to FFmpeg stdin...")
+
+        # Initialize video clip streams for scenes that have real moving footage
+        video_streams: Dict[int, VideoClipStream] = {}
+        for p in timeline:
+            if p.rendered_clip_path and Path(p.rendered_clip_path).exists():
+                try:
+                    video_streams[p.scene_number] = VideoClipStream(
+                        Path(p.rendered_clip_path), width=self.WIDTH, height=self.HEIGHT, fps=self.FPS
+                    )
+                    logger.info(f"Initialized real-time video stream for scene {p.scene_number}: {Path(p.rendered_clip_path).name}")
+                except Exception as e:
+                    logger.warning(f"Failed to initialize video stream for scene {p.scene_number}: {e}")
 
         ffmpeg_cmd = [
             config.ffmpeg_path, "-y",
@@ -640,26 +657,74 @@ class MotionGraphicsEngine:
             for p in timeline
         )
 
-        for frame_idx in range(total_frames):
-            t_global = frame_idx / float(self.FPS)
+        try:
+            for frame_idx in range(total_frames):
+                t_global = frame_idx / float(self.FPS)
 
-            cur_plan = timeline[-1]
-            for p in timeline:
-                if p.start_sec <= t_global < p.end_sec:
-                    cur_plan = p
-                    break
+                cur_idx = len(timeline) - 1
+                for idx, p in enumerate(timeline):
+                    if p.start_sec <= t_global < p.end_sec:
+                        cur_idx = idx
+                        break
 
-            scene_rel_t = max(0.0, t_global - cur_plan.start_sec)
-            scene_dur = max(0.001, cur_plan.end_sec - cur_plan.start_sec)
-            norm_p = min(1.0, scene_rel_t / scene_dur)
+                cur_plan = timeline[cur_idx]
+                scene_rel_t = max(0.0, t_global - cur_plan.start_sec)
+                scene_dur = max(0.001, cur_plan.end_sec - cur_plan.start_sec)
+                norm_p = min(1.0, scene_rel_t / scene_dur)
 
-            img_src = scene_images[cur_plan.scene_number]
-            rendered = self.render_scene_frame(cur_plan, img_src, norm_p, t_global, scene_rel_t, caption_cues)
+                if cur_plan.scene_number in dev_scene_graphs:
+                    rendered = dev_scene_graphs[cur_plan.scene_number].render_frame(scene_rel_t, t_global, scene_dur)
+                elif cur_plan.scene_number in video_streams:
+                    v_frame = video_streams[cur_plan.scene_number].read_frame()
+                    if v_frame is not None:
+                        rendered = self.render_scene_frame(
+                            cur_plan, v_frame, norm_p, t_global, scene_rel_t, caption_cues, treatment=treatment, is_moving_video=True
+                        )
+                    else:
+                        fallback_img = scene_images[cur_plan.scene_number]
+                        rendered = self.render_scene_frame(
+                            cur_plan, fallback_img, norm_p, t_global, scene_rel_t, caption_cues, treatment=treatment, is_moving_video=False
+                        )
+                else:
+                    img_src = scene_images[cur_plan.scene_number]
+                    rendered = self.render_scene_frame(
+                        cur_plan, img_src, norm_p, t_global, scene_rel_t, caption_cues, treatment=treatment, is_moving_video=False
+                    )
 
-            if frame_idx in sample_indices:
-                saved_preview_frames[frame_idx] = rendered.copy()
+                # Cinematic multi-frame alpha cross-dissolve to next scene
+                trans_duration = 0.35  # ~10 frames @ 30 FPS
+                if cur_idx < len(timeline) - 1:
+                    next_plan = timeline[cur_idx + 1]
+                    time_remaining = cur_plan.end_sec - t_global
+                    if time_remaining <= trans_duration and cur_plan.transition_type in ("crossfade", "cross_dissolve", "dissolve"):
+                        blend_alpha = min(1.0, max(0.0, 1.0 - (time_remaining / trans_duration)))
+                        if next_plan.scene_number in dev_scene_graphs:
+                            rendered_next = dev_scene_graphs[next_plan.scene_number].render_frame(0.0, t_global, max(0.001, next_plan.end_sec - next_plan.start_sec))
+                        elif next_plan.scene_number in video_streams:
+                            next_v = video_streams[next_plan.scene_number].read_frame()
+                            if next_v is not None:
+                                rendered_next = self.render_scene_frame(
+                                    next_plan, next_v, 0.0, t_global, 0.0, caption_cues, treatment=treatment, is_moving_video=True
+                                )
+                            else:
+                                rendered_next = self.render_scene_frame(
+                                    next_plan, scene_images[next_plan.scene_number], 0.0, t_global, 0.0, caption_cues, treatment=treatment, is_moving_video=False
+                                )
+                        else:
+                            next_img = scene_images[next_plan.scene_number]
+                            rendered_next = self.render_scene_frame(
+                                next_plan, next_img, 0.0, t_global, 0.0, caption_cues, treatment=treatment, is_moving_video=False
+                            )
+                        rendered = Image.blend(rendered, rendered_next, blend_alpha)
 
-            proc.stdin.write(rendered.tobytes())
+                if frame_idx in sample_indices:
+                    saved_preview_frames[frame_idx] = rendered.copy()
+
+                proc.stdin.write(rendered.tobytes())
+        finally:
+            # Clean up all video streams
+            for vs in video_streams.values():
+                vs.close()
 
         proc.stdin.close()
         proc.wait()
@@ -706,30 +771,43 @@ class MotionGraphicsEngine:
         for plan in timeline:
             loaded_img: Optional[Image.Image] = None
 
-            # For archival photos: prioritize the raw authentic image for 100% full-bleed vertical framing
-            if plan.asset_type == "archival_photo":
-                purpose = (plan.visual_purpose or "discovery").lower()
-                candidate = fallback_map.get(purpose, curated_base / "07_mona_lisa_masterpiece.jpg")
-                if candidate and candidate.exists():
-                    try:
-                        loaded_img = Image.open(candidate).convert("RGB")
-                    except Exception:
-                        pass
-
-            if not loaded_img and plan.rendered_image_path and Path(plan.rendered_image_path).exists():
+            # 1. ALWAYS prioritize the exact scene image composed specifically for this plan
+            if plan.rendered_image_path and Path(plan.rendered_image_path).exists():
                 try:
                     loaded_img = Image.open(plan.rendered_image_path).convert("RGB")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to open rendered image {plan.rendered_image_path}: {e}")
 
+            # 2. Only if rendered image is absent, check curated assets
             if not loaded_img:
-                candidate = fallback_map.get(plan.visual_purpose, curated_base / "07_mona_lisa_masterpiece.jpg")
-                if candidate.exists():
-                    try:
-                        loaded_img = Image.open(candidate).convert("RGB")
-                    except Exception:
-                        pass
+                flannan_base = Path("data/curated_assets/flannan_isles")
+                is_ml = any(
+                    k in (plan.search_query or "").lower() or k in (plan.narration_segment or "").lower()
+                    for k in ("mona lisa", "peruggia", "louvre", "beroud", "joconde")
+                )
+                if is_ml and curated_base.exists():
+                    candidate = fallback_map.get(plan.visual_purpose, curated_base / "07_mona_lisa_masterpiece.jpg")
+                    if candidate.exists():
+                        try:
+                            loaded_img = Image.open(candidate).convert("RGB")
+                        except Exception:
+                            pass
+                elif flannan_base.exists():
+                    fl_map = {
+                        "hook": flannan_base / "01_flannan_lighthouse_cliff.jpg",
+                        "discovery": flannan_base / "02_flannan_abandoned_meal.jpg",
+                        "tension": flannan_base / "03_flannan_logbook_clock.jpg",
+                        "evidence": flannan_base / "04_flannan_oilskin_coat.jpg",
+                        "payoff": flannan_base / "05_flannan_dark_sea.jpg",
+                    }
+                    candidate = fl_map.get(plan.visual_purpose, flannan_base / "01_flannan_lighthouse_cliff.jpg")
+                    if candidate.exists():
+                        try:
+                            loaded_img = Image.open(candidate).convert("RGB")
+                        except Exception:
+                            pass
 
+            # 3. Final neutral dark documentary fallback
             if not loaded_img:
                 loaded_img = Image.new("RGB", (self.WIDTH, self.HEIGHT), (15, 23, 42))
 
@@ -888,18 +966,51 @@ class MotionGraphicsEngine:
             bx = (self.WIDTH - bar_w) // 2
             draw.line([(bx, rule_y), (bx + bar_w, rule_y)], fill=accent_color, width=3)
 
+    def _draw_countdown_badge(
+        self,
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        y_pos: int = 220,
+        alpha: int = 255,
+    ) -> None:
+        """Render high-impact ranking countdown badge (e.g. '#1 • PARIS CATACOMBS')."""
+        clean = text.strip().upper()
+        if not clean or alpha <= 0:
+            return
+
+        font_badge = self.font_headline
+        bbox = draw.textbbox((0, 0), clean, font=font_badge)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+
+        pad_x, pad_y = 36, 16
+        box_w = text_w + pad_x * 2
+        box_h = text_h + pad_y * 2
+        bx = (self.WIDTH - box_w) // 2
+        by = y_pos
+
+        is_num_one = "#1" in clean or "RANK 1" in clean or "NUMBER 1" in clean
+        border_color = (225, 29, 72, alpha) if is_num_one else (217, 164, 65, alpha)
+
+        # Drop shadow
+        draw.rounded_rectangle([bx + 4, by + 4, bx + box_w + 4, by + box_h + 4], radius=14, fill=(0, 0, 0, min(180, alpha)))
+        # Dark frosted glass pill
+        draw.rounded_rectangle([bx, by, bx + box_w, by + box_h], radius=14, fill=(11, 15, 25, int(225 * (alpha / 255.0))), outline=border_color, width=3)
+        # Sharp text with accent
+        draw.text((bx + pad_x, by + pad_y), clean, font=font_badge, fill=(255, 255, 255, alpha))
+
     def _draw_subtitle_pill(
         self,
         draw: ImageDraw.ImageDraw,
         text: str,
-        y_pos: int = 1620,
+        y_pos: int = 1380,
     ) -> None:
-        """Render distinct lower-third spoken caption separate from decorative title cards."""
+        """Render distinct lower-third spoken caption in optimal mobile vertical sweet spot."""
         clean = text.strip().upper()
         if not clean:
             return
 
-        max_text_w = self.WIDTH - 140
+        max_text_w = self.WIDTH - 160
         words = clean.split()
         lines: List[str] = []
         cur_line: List[str] = []
@@ -918,7 +1029,7 @@ class MotionGraphicsEngine:
         if cur_line:
             lines.append(" ".join(cur_line))
 
-        pad_x, pad_y = 28, 12
+        pad_x, pad_y = 32, 16
         for l_idx, line in enumerate(lines):
             bbox = draw.textbbox((0, 0), line, font=self.font_sub)
             text_w = bbox[2] - bbox[0]
@@ -927,14 +1038,14 @@ class MotionGraphicsEngine:
             pill_w = text_w + pad_x * 2
             pill_h = text_h + pad_y * 2
             px = (self.WIDTH - pill_w) // 2
-            py = y_pos + l_idx * (pill_h + 8)
+            py = y_pos + l_idx * (pill_h + 10)
 
             # Translucent black capsule with fine gold border
             draw.rounded_rectangle(
                 [px, py, px + pill_w, py + pill_h],
-                radius=12,
-                fill=(11, 15, 25, 230),
-                outline=(217, 164, 65, 160),
+                radius=16,
+                fill=(11, 15, 25, 235),
+                outline=(217, 164, 65, 180),
                 width=2,
             )
             tx = px + pad_x

@@ -6,6 +6,12 @@ import argparse
 import json
 import sys
 from pathlib import Path
+
+# Ensure root directory is in sys.path
+root_dir = str(Path(__file__).resolve().parent.parent)
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
+
 from typing import Optional
 
 from app.config import config
@@ -690,6 +696,7 @@ def main() -> None:
     pause_parser = subparsers.add_parser("pause", help="Globally pause autonomous operation")
     pause_parser.add_argument("--reason", type=str, default="Paused via CLI command", help="Reason for pause")
     subparsers.add_parser("resume", help="Resume autonomous operation")
+    subparsers.add_parser("bot", help="Run interactive Telegram control room bot polling loop")
 
     subparsers.add_parser("strategy", help="Display empirical content strategy weights and measured feedback report")
     decisions_parser = subparsers.add_parser("decisions", help="Display recent autonomous decision logs with explainable rationale")
@@ -724,6 +731,7 @@ def main() -> None:
     research_parser.add_argument("--quota", action="store_true", help="Display YouTube API quota usage and guidance")
     research_parser.add_argument("--channels", action="store_true", help="List tracked competitor channels")
     research_parser.add_argument("--add-channel", nargs="+", help="Add a competitor channel: <id> [title]")
+    subparsers.add_parser("clean-artifacts", help="Delete temporary job files, raw video renders, and cache to free disk space")
 
     args = parser.parse_args()
 
@@ -778,6 +786,22 @@ def main() -> None:
     elif args.command == "dashboard":
         from app.dashboard.cli import render_dashboard
         sys.exit(render_dashboard())
+    elif args.command == "clean-artifacts":
+        from app.orchestrator import Orchestrator
+        orch = Orchestrator()
+        res = orch.clean_all_artifacts()
+        print("=" * 60)
+        print("  ARTIFACT CLEANUP SUMMARY")
+        print("=" * 60)
+        print(f"  • Deleted Job Folders: {res['removed_job_folders']}")
+        print(f"  • Deleted Temp Files:  {res['removed_temp_files']}")
+        print(f"  • Disk Space Freed:    {res['freed_mb']:.1f} MB")
+        print("=" * 60)
+        sys.exit(0)
+    elif args.command == "bot":
+        from app.telegram.bot import TelegramControlRoom
+        print("Telegram Control Room bot listening on @DarkestMindsbot... Press Ctrl+C to stop.")
+        sys.exit(TelegramControlRoom().start_polling())
     else:
         # Default to health check if no command specified
         sys.exit(cmd_health())

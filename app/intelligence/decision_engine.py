@@ -271,20 +271,26 @@ class DecisionEngine:
 
     @staticmethod
     def _classify_category(topic: str) -> str:
-        """Classify topic into storytelling sub-niche."""
+        """Classify topic into Darkest Minds 101 mystery sub-niches."""
         topic_lower = topic.lower()
-        if any(w in topic_lower for w in ("mystery", "vanished", "unsolved", "disappeared", "secret", "bermuda")):
-            return "unsolved_mystery"
-        elif any(w in topic_lower for w in ("heist", "war", "ancient", "emperor", "king", "queen", "rome", "19", "18", "17")):
-            return "strange_history"
+        if any(w in topic_lower for w in ("disappearance", "vanish", "missing", "lost", "fled", "abandoned")):
+            return "strange_disappearances"
+        elif any(w in topic_lower for w in ("unexplained", "anomaly", "bizarre", "radio", "signal", "mask", "radiation")):
+            return "unexplained_events"
+        elif any(w in topic_lower for w in ("rabbit hole", "internet", "cicada", "code", "cryptic", "forum", "lost media")):
+            return "internet_rabbit_holes"
+        elif any(w in topic_lower for w in ("forgotten", "cold case", "ancient", "history", "unsolved")):
+            return "unsolved_mysteries"
+        elif any(w in topic_lower for w in ("friday", "production", "deploy", "incident", "outage", "database")):
+            return "incident_investigation"
         else:
-            return "real_curiosity"
+            return "unsolved_mysteries"
 
     @staticmethod
     def _select_hook_style(weights: Dict[str, Any]) -> str:
         """Select hook style balancing empirical performance and exploration."""
-        styles = ["curiosity_gap", "contradictory_fact", "historical_anomaly"]
-        best_style = "curiosity_gap"
+        styles = ["chilling_discovery", "curiosity_gap", "impossible_crime", "crisis_in_progress"]
+        best_style = "chilling_discovery"
         best_multiplier = -1.0
         for s in styles:
             w = weights.get(f"hook_style:{s}")
@@ -297,7 +303,7 @@ class DecisionEngine:
     @staticmethod
     def _select_narrative_archetype(weights: Dict[str, Any]) -> str:
         """Select narrative archetype balancing performance and variety."""
-        archetypes = ["escalating_revelation", "ironclad_puzzle", "lost_relic"]
+        archetypes = ["escalating_revelation", "investigative_timeline", "unsolved_autopsy", "incident_autopsy"]
         best_archetype = "escalating_revelation"
         best_multiplier = -1.0
         for a in archetypes:

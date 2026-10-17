@@ -73,18 +73,20 @@ def test_publishing_safety_evaluation(test_db):
     engine = DecisionEngine(database=test_db)
     job = test_db.create_job(title="Test Job")
 
-    # 1. Default mode is 'disabled'
-    can_pub, privacy, reason = engine.evaluate_publishing_safety(job)
-    assert can_pub is False
-    assert "disabled" in reason.lower()
-
-    # 2. Test when channel is not connected in autonomous_public
-    config.youtube_publish_mode = "autonomous_public"
-    from unittest.mock import patch
-    with patch.object(engine.channel_manager, "get_connection_status", return_value=OwnerChannelStatus(is_connected=False)):
+    old_mode = config.youtube_publish_mode
+    try:
+        # 1. Default mode is 'disabled'
+        config.youtube_publish_mode = "disabled"
         can_pub, privacy, reason = engine.evaluate_publishing_safety(job)
         assert can_pub is False
-        assert "not connected" in reason.lower()
+        assert "disabled" in reason.lower()
 
-    # Reset config
-    config.youtube_publish_mode = "disabled"
+        # 2. Test when channel is not connected in autonomous_public
+        config.youtube_publish_mode = "autonomous_public"
+        from unittest.mock import patch
+        with patch.object(engine.channel_manager, "get_connection_status", return_value=OwnerChannelStatus(is_connected=False)):
+            can_pub, privacy, reason = engine.evaluate_publishing_safety(job)
+            assert can_pub is False
+            assert "not connected" in reason.lower()
+    finally:
+        config.youtube_publish_mode = old_mode

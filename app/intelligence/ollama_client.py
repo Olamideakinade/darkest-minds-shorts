@@ -122,6 +122,14 @@ class FallbackProvider(ModelProvider):
 
 def get_model_provider() -> ModelProvider:
     """Return configured model provider instance."""
+    # 1. Prefer Google Gemini if explicitly requested or if GEMINI_API_KEY is configured
+    if config.model_provider == "gemini" or bool(getattr(config, "gemini_api_key", "")):
+        from app.intelligence.gemini_client import GoogleGeminiProvider
+        gemini_provider = GoogleGeminiProvider()
+        if gemini_provider.is_available():
+            return gemini_provider
+
+    # 2. Local Ollama provider
     if config.model_provider == "ollama":
         provider = OllamaProvider()
         if provider.is_available():

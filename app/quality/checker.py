@@ -39,6 +39,29 @@ class QualityChecker:
         timeline: Optional[List[ScenePlan]] = None,
     ) -> QualityReport:
         """Run comprehensive technical, motion, and content QA checks on a rendered Short."""
+        return self._do_verify_production_quality(job_id, video_path, audio_path, srt_path, script, timeline)
+
+    def run_all_checks(
+        self,
+        job_id: str,
+        video_path: Path,
+        audio_path: Path,
+        srt_path: Path,
+        script: Optional[Any] = None,
+        timeline: Optional[List[ScenePlan]] = None,
+    ) -> QualityReport:
+        """Convenience alias for verify_production_quality."""
+        return self.verify_production_quality(job_id, video_path, audio_path, srt_path, script, timeline)
+
+    def _do_verify_production_quality(
+        self,
+        job_id: str,
+        video_path: Path,
+        audio_path: Path,
+        srt_path: Path,
+        script: Optional[Any] = None,
+        timeline: Optional[List[ScenePlan]] = None,
+    ) -> QualityReport:
         logger.info(f"Running automated QA checks for job {job_id} on {video_path.name}...")
         issues: List[str] = []
         checks: Dict[str, Any] = {}
@@ -83,14 +106,24 @@ class QualityChecker:
 
                 # Visual Motion & Temporal Dynamics Check
                 if video_path.exists() and meta.duration_sec >= 1.5:
+                    from app.quality.visual_validator import VisualQualityGate, QualitySeverity
+                    vq_gate = VisualQualityGate()
+                    vq_report = vq_gate.audit_video(video_path, timeline=timeline, output_dir=video_path.parent / "quality_audit")
+                    checks["visual_quality_gate"] = vq_report.to_dict()
                     motion_ok, motion_diff = self._check_temporal_motion(video_path, meta.duration_sec)
-                    checks["motion_detected"] = motion_ok
                     checks["temporal_pixel_variance"] = round(motion_diff, 2)
-                    if not motion_ok:
-                        issues.append("Video exhibits static dead frames with zero camera movement or motion graphics.")
+                    checks["motion_detected"] = motion_ok and not any(d.defect_type == "PROLONGED_STATIC_VIDEO" for d in vq_report.defects)
+                    checks["visual_gate_passed"] = vq_report.passed_hard_gate
+                    checks["creative_score"] = vq_report.creative_score
+
+                    for defect in vq_report.defects:
+                        if defect.defect_type in ("DURATION_TOO_SHORT", "DURATION_TOO_LONG"):
+                            continue
+                        if defect.severity == QualitySeverity.CRITICAL:
+                            issues.append(f"Visual Quality Hard Failure: [{defect.defect_type}] {defect.message}")
 
             except Exception as e:
-                issues.append(f"FFprobe technical inspection failed: {e}")
+                issues.append(f"Technical inspection failed: {e}")
 
         # 2. Narration Audio Check
         if not audio_path.exists() or audio_path.stat().st_size == 0:
@@ -120,14 +153,17 @@ class QualityChecker:
             checks["motion_types_used"] = list(set(p.motion_type for p in timeline))
             checks["asset_types_used"] = list(set(p.asset_type for p in timeline))
 
-            # Check for excessive static scenes (>6.5s on a single scene)
-            long_scenes = [p for p in timeline if p.duration_sec > 6.5]
+            # Check for excessive static scenes (>6.5s on a single static scene, >8.0s on moving video)
+            long_scenes = [p for p in timeline if p.duration_sec > (8.0 if p.rendered_clip_path else 6.5)]
             if long_scenes:
                 checks["long_scenes_count"] = len(long_scenes)
-                issues.append(f"{len(long_scenes)} scene(s) exceed 6.5s duration without narrative cut.")
+                issues.append(f"{len(long_scenes)} scene(s) exceed duration limit without narrative cut.")
 
             # Visual Diversity Check
-            if len(set(p.asset_type for p in timeline)) < 3 and len(timeline) >= 6:
+            unique_assets = set(p.asset_type for p in timeline)
+            video_clips = set(str(p.rendered_clip_path) for p in timeline if p.rendered_clip_path)
+            total_variety = max(len(unique_assets), len(video_clips))
+            if total_variety < 3 and len(timeline) >= 6:
                 issues.append("Timeline lacks visual variety (fewer than 3 distinct asset types across scenes).")
 
             # Scene Duplication Check
@@ -148,14 +184,31 @@ class QualityChecker:
             if not lic_ok:
                 issues.extend(lic_issues)
 
-        # 5. Factual Integrity Check
+        # 5. Factual & Content Integrity Check
         if script:
             factual_status = getattr(script, "factual_verification_status", "VERIFIED")
             checks["factual_status"] = factual_status
-            if factual_status == "SPECULATIVE":
-                issues.append("Script contains ungrounded/speculative claims requiring owner review.")
+            if factual_status in ("SPECULATIVE", "FAILED", "CONFLICTED"):
+                issues.append(f"Script contains ungrounded or conflicted claims (status: {factual_status}).")
 
-        # 6. Disk Space Safety Guard
+        # 6. Prohibited Futuristic / Military Radar Graphics Check
+        if timeline:
+            for p in timeline:
+                if p.asset_type == "historical_map":
+                    prohibited = ("radar", "sector alpha", "primary search perimeter", "locus of incident")
+                    txt = f"{p.kinetic_text} {p.search_query}".lower()
+                    if any(term in txt for term in prohibited):
+                        issues.append(f"Historical map scene #{p.scene_number} contains prohibited military radar HUD graphics: {p.kinetic_text}")
+
+        # 7. Acoustic Synchronization Target Check
+        job_record = self.db.get_job(job_id) if job_id else None
+        job_payload = job_record.payload if job_record else {}
+        timing_mode = job_payload.get("timing_mode") or "acoustic"
+        checks["timing_mode"] = timing_mode
+        if job_payload.get("strict_acoustic_timing", False) and timing_mode == "estimated":
+            issues.append("Strict acoustic timing target failed: timestamps are estimated rather than acoustic measurements.")
+
+        # 8. Disk Space Safety Guard
         hw = inspect_hardware()
         checks["free_disk_gb"] = hw.free_disk_gb
         if hw.free_disk_gb < config.min_disk_free_gb:
@@ -229,10 +282,13 @@ class QualityChecker:
         """Verify scenes do not contain massive empty black voids or untextured dead space in lower frame."""
         issues = []
         for p in timeline:
-            if not p.rendered_image_path or not p.rendered_image_path.exists():
+            if not p.rendered_image_path:
+                continue
+            img_p = Path(p.rendered_image_path)
+            if not img_p.exists():
                 continue
             try:
-                with Image.open(p.rendered_image_path) as img:
+                with Image.open(img_p) as img:
                     img_rgb = img.convert("RGB")
                     # Sample bottom 35% of frame (y=1250 to 1920)
                     bottom_crop = img_rgb.crop((0, 1250, img.width, img.height))
@@ -251,12 +307,20 @@ class QualityChecker:
         issues = []
         for i in range(len(timeline) - 1):
             p1, p2 = timeline[i], timeline[i + 1]
+            # Moving video clips: if they are different clips or playing dynamically over time, they are not static duplicates
+            if p1.rendered_clip_path and p2.rendered_clip_path:
+                if p1.rendered_clip_path != p2.rendered_clip_path:
+                    continue
+                if p1.end_sec - p1.start_sec > 0:
+                    continue
             if not p1.rendered_image_path or not p2.rendered_image_path:
                 continue
-            if not p1.rendered_image_path.exists() or not p2.rendered_image_path.exists():
+            path1 = Path(p1.rendered_image_path)
+            path2 = Path(p2.rendered_image_path)
+            if not path1.exists() or not path2.exists():
                 continue
             try:
-                with Image.open(p1.rendered_image_path) as img1, Image.open(p2.rendered_image_path) as img2:
+                with Image.open(path1) as img1, Image.open(path2) as img2:
                     diff = ImageChops.difference(img1.convert("RGB"), img2.convert("RGB"))
                     stat = diff.getextrema()
                     max_diff = max(s[1] for s in stat)

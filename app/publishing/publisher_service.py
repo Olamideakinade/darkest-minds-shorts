@@ -36,7 +36,7 @@ class MultiPlatformPublisherService:
     ) -> PublishResult:
         """Publish payload to a single target platform with strict safety pre-flight."""
         # 1. Pre-flight safety check
-        passed, issues = self.safety.check_preflight(payload, platform)
+        passed, issues = self.safety.check_preflight(payload, platform, dry_run=dry_run)
         if not passed:
             logger.warning(f"Publishing pre-flight rejected for {platform.value}: {'; '.join(issues)}")
             return PublishResult(
@@ -46,7 +46,20 @@ class MultiPlatformPublisherService:
                 dry_run=dry_run,
             )
 
-        # 2. Dispatch to specific connector
+        # 2. Check for ambiguous upload already present on remote platform before retrying
+        already_uploaded, remote_id = self.safety.reconcile_ambiguous_upload(payload, platform)
+        if already_uploaded and remote_id:
+            logger.info(f"Reconciliation: Job {payload.job_id} already exists on {platform.value} ({remote_id}). Skipping re-upload.")
+            return PublishResult(
+                platform=platform,
+                status=PublishStatus.PUBLISHED,
+                platform_post_id=remote_id,
+                platform_url=f"https://youtube.com/shorts/{remote_id}" if platform == PlatformType.YOUTUBE_SHORTS else f"https://mhide.dev/posts/{platform.value}/{remote_id}",
+                dry_run=False,
+                details={"reconciled": True, "remote_id": remote_id},
+            )
+
+        # 3. Dispatch to specific connector
         logger.info(f"Publishing job {payload.job_id} to {platform.value} (Dry-run: {dry_run})...")
         if platform == PlatformType.YOUTUBE_SHORTS:
             res = self.yt_connector.publish(payload, dry_run=dry_run)

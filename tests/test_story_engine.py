@@ -37,14 +37,14 @@ def test_script_validator_cliches():
 
 def test_factual_verifier_extracts_dates_and_figures():
     verifier = FactualVerifier()
-    text = "In 1911, King Henry met General Washington in Paris to sign the treaty."
-    claims, status, notes = verifier.verify_script_claims("test-script-1", text)
+    text = "In 1911, Vincenzo Peruggia stole the Mona Lisa from the Louvre in Paris."
+    claims, status, notes = verifier.verify_script_claims("test-script-1", text, topic="Mona Lisa theft")
 
     assert status == "VERIFIED"
     assert len(claims) >= 2
     claim_texts = [c.claim_text for c in claims]
     assert any("1911" in t for t in claim_texts)
-    assert any("King Henry" in t or "General Washington" in t for t in claim_texts)
+    assert any("Vincenzo Peruggia" in t or "Louvre" in t for t in claim_texts)
 
 
 def test_factual_verifier_flags_speculative_assertions():

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Dict, List, Optional
 import urllib.parse
 import urllib.request
@@ -36,11 +37,12 @@ class TelegramControlRoom:
             return (
                 "🎮 *Mhide Story Intelligence — Control Room Commands*\n\n"
                 "• `/status` — Channel status, queue distribution, and disk headroom\n"
+                "• `/latest` — Show latest produced/published YouTube Short\n"
+                "• `/clean` — Purge old video render folders and cache to free disk space\n"
                 "• `/pause` — Globally pause autonomous production & uploads\n"
                 "• `/resume` — Resume autonomous scheduler\n"
                 "• `/strategy` — View empirical strategy weights and performance feedback\n"
                 "• `/decisions` — View recent autonomous AI decision audit trail\n"
-                "• `/latest` — Show latest produced/published YouTube Short\n"
             )
 
         elif cmd == "/status":
@@ -93,6 +95,64 @@ class TelegramControlRoom:
                 if jobs:
                     j = jobs[0]
                     return f"Latest Job: *{j.title}* (State: `{j.state.value}`, ID: `{j.id}`)"
-                return "No jobs or videos found in database."
+        elif cmd == "/clean":
+            from app.orchestrator import Orchestrator
+            orch = Orchestrator()
+            res = orch.clean_all_artifacts()
+            return (
+                "🧹 *Disk Cleanup Complete*\n\n"
+                f"• Removed Job Folders: `{res['removed_job_folders']}`\n"
+                f"• Removed Temp Clips: `{res['removed_temp_files']}`\n"
+                f"• Reclaimed Space: `{res['freed_mb']:.1f} MB`\n"
+            )
 
         return "Unknown command. Send `/help` for available commands."
+
+    def start_polling(self, poll_interval_sec: float = 2.0) -> None:
+        """Poll Telegram getUpdates and reply to incoming commands."""
+        if not self.bot_token:
+            logger.warning("Telegram bot token not configured.")
+            return
+
+        logger.info(f"Telegram Control Room bot active (polling @DarkestMindsbot)...")
+        offset = None
+
+        while True:
+            try:
+                url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
+                params = {"timeout": 10}
+                if offset:
+                    params["offset"] = offset
+                url = f"{url}?{urllib.parse.urlencode(params)}"
+
+                req = urllib.request.Request(url)
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    updates = data.get("result", [])
+
+                for update in updates:
+                    offset = update["update_id"] + 1
+                    msg = update.get("message", {})
+                    user_id = msg.get("from", {}).get("id")
+                    text = msg.get("text", "")
+                    chat_id = msg.get("chat", {}).get("id")
+
+                    if user_id and text and chat_id:
+                        reply_text = self.handle_command(user_id, text)
+                        send_url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+                        send_data = json.dumps({
+                            "chat_id": chat_id,
+                            "text": reply_text,
+                            "parse_mode": "Markdown",
+                        }).encode("utf-8")
+                        send_req = urllib.request.Request(
+                            send_url,
+                            data=send_data,
+                            headers={"Content-Type": "application/json"},
+                            method="POST",
+                        )
+                        urllib.request.urlopen(send_req, timeout=5)
+            except Exception as e:
+                logger.debug(f"Telegram polling note: {e}")
+
+            time.sleep(poll_interval_sec)

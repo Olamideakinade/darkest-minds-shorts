@@ -252,6 +252,10 @@ class Database:
         in_flight_states = [
             JobState.RESEARCHING.value,
             JobState.SCRIPTING.value,
+            JobState.GENERATING_ASSETS.value,
+            JobState.EDITING.value,
+            JobState.RENDERING.value,
+            JobState.QUALITY_CHECK.value,
             JobState.NARRATING.value,
             JobState.ASSEMBLING.value,
             JobState.QA.value,
@@ -260,16 +264,16 @@ class Database:
         now = utc_now_iso()
         count = 0
         with self.connection() as conn:
-            # Jobs in UPLOADING state must transition to NEEDS_REVIEW to prevent duplicate uploads
+            # Jobs in UPLOADING or PUBLISHING state must transition to REVIEW_REQUIRED to prevent duplicate uploads
             cursor_upload = conn.execute(
                 """
                 UPDATE jobs
                 SET state = ?, lock_token = NULL, locked_at = NULL,
-                    error_message = 'Interrupted during upload. Flagged for review to avoid duplicate publishing.',
+                    error_message = 'Interrupted during publish/upload. Flagged for review to reconcile with remote platforms and avoid duplicate publishing.',
                     updated_at = ?
-                WHERE state = ?
+                WHERE state IN (?, ?)
                 """,
-                (JobState.NEEDS_REVIEW.value, now, JobState.UPLOADING.value),
+                (JobState.REVIEW_REQUIRED.value, now, JobState.UPLOADING.value, JobState.PUBLISHING.value),
             )
             count += cursor_upload.rowcount
 
