@@ -212,17 +212,20 @@ class StoryEngine:
         system_prompt = (
             "You are an elite viral YouTube Shorts director for the dark documentary channel 'Darkest Minds 101', "
             "specializing in Dark Rankings, Extreme Curiosities, Forbidden Locations, and Unsolved Mysteries.\n"
-            "Generate a high-retention 35-to-45-second script on the given topic.\n"
+            "Generate a high-retention 22-to-26-second viral script on the given topic.\n"
             "RULES:\n"
-            "1. HOOK (0-3 seconds): Must be a terrifying, high-stakes statement under 12 words. No generic AI cliches or 'Welcome back'.\n"
-            "2. PACING: Fast, punchy, dark documentary tone (~150 words per minute).\n"
-            "3. TITLE: Must be under 65 characters total (so vertical mobile never truncates it) and include 1 emoji + #shorts.\n"
-            "4. VISUALS: Break the script into 4-to-5-second scenes. For every scene, provide:\n"
-            "   - 'badge_text': Punchy ranking badge (e.g. '#3 • SNAKE ISLAND', 'SURVIVAL: 0%').\n"
-            "   - 'narration': The exact spoken words for that 4-second segment.\n"
-            "   - 'pexels_query': A simple 2-to-3 word search term to find real moving video on Pexels (e.g. 'venomous snake', 'dark skull tunnel').\n"
-            "   - 'ai_image_prompt': A hyper-detailed Flux AI image prompt describing a dark, cinematic, photorealistic 8k horror/documentary shot matching the narration (no text in image).\n"
-            "5. Act 3 / Final Scene: Must end with a divisive debate question to trap viewers into typing comments while video loops.\n"
+            "1. HOOK (Scene 1, 0-3s): Visceral, high-stakes curiosity gap under 10 words. No greetings, no 'Did you know', no cliches.\n"
+            "2. PACING: Rapid, high-tension mobile cuts every 2.5 to 3.5 seconds (~165 words per minute).\n"
+            "3. INFINITE SEAMLESS LOOPING (CRITICAL FOR >100% RETENTION): The final sentence of the script (Act 3 / Final Scene) "
+            "must syntactically and grammatically link directly back into the opening words of the Hook (Scene 1). "
+            "Never say 'subscribe', 'thanks for watching', or 'in conclusion'. The video must loop infinitely so viewers rewatch without realizing the video restarted.\n"
+            "   Example: Final scene ends with '...which leaves forensic experts with the terrifying question of why' -> seamlessly loops to opening line: 'Nine hikers cut open their tent from the inside...'\n"
+            "4. SCENES: Break the script into 6 to 8 rapid scenes (each 2.5 to 3.5 seconds long, 7 to 11 spoken words). For every scene, provide:\n"
+            "   - 'badge_text': Punchy ranking badge (e.g. '#3 • SNAKE ISLAND', 'SURVIVAL: 0%', 'FORENSIC FILE #42').\n"
+            "   - 'narration': The exact spoken words for that 2.5-3.5 second segment.\n"
+            "   - 'pexels_query': A simple 2-to-3 word search term to find real moving video on Pixabay/Pexels (e.g. 'storm sea', 'dark forest', 'skull catacombs').\n"
+            "   - 'ai_image_prompt': A hyper-detailed prompt describing a dark, cinematic, photorealistic 8k horror/documentary shot matching the narration (no text in image).\n"
+            "5. TITLE: Clean, punchy title under 55 characters + 1 emoji + #Shorts.\n"
             "Output strictly valid JSON with keys: title, description, tags, hook_text, escalation_text, payoff_text, scenes."
         )
 
@@ -232,7 +235,7 @@ class StoryEngine:
             f"Category: {category}\n"
             f"Hook Style: {hook_style}\n"
             f"Narrative Archetype: {archetype}\n"
-            f"Target Spoken Duration: 35 to 45 seconds (approx 85-100 words across 8-9 scenes).\n\n"
+            f"Target Spoken Duration: 22 to 26 seconds (approx 55-65 words across 6-8 rapid scenes with an unbroken infinite loop).\n\n"
             "Provide the script JSON."
         )
 
@@ -419,41 +422,47 @@ class StoryEngine:
             )
             payoff = "And at number 1: Challenger Deep in the Mariana Trench at 36,000 feet, where unclassified biological sounds were recorded. What do you think is down there?"
         elif any(k in topic_lower for k in ("lighthouse", "flannan", "island", "keepers", "vanished")):
-            hook = "In December 1900, three lighthouse keepers vanished from a remote Scottish island, leaving an untouched meal on the table."
+            hook = "Three lighthouse keepers vanished from a remote Scottish island leaving an untouched warm meal."
             escalation = (
-                "The logbook recorded a storm so violent it made seasoned sailors weep. "
-                "Yet mainland weather stations recorded clear, calm skies. "
+                "The logbook recorded a storm so violent it made seasoned sailors weep, yet mainland weather stations recorded clear calm skies. "
                 "The lighthouse clocks had stopped, and an oilskin coat was left hanging behind."
             )
-            payoff = "No bodies were ever found. What do you think took the men of Flannan Isle?"
+            payoff = "Maritime investigators are still haunted by the terrifying question of why"
         elif any(k in topic_lower for k in ("lead mask", "vintem", "brazil", "capsule", "ufo")):
-            hook = "In 1966, two men were found dead on a hill in Brazil wearing formal suits and lead masks over their eyes."
+            hook = "Two men in formal suits were found dead on a hill wearing lead masks over their eyes."
             escalation = (
-                "Beside their bodies lay a cryptic handwritten note: 'Be at the location. Ingest capsules. Protect face with lead mask. Await signal.' "
-                "There was no poison, no trauma, and no trace of who gave them the instructions."
+                "Beside their bodies lay a cryptic handwritten note: ingest capsules, protect face with lead mask, await signal. "
+                "There was zero poison, zero trauma, and no trace of who gave the instructions."
             )
-            payoff = "Were they chasing UFOs or lured into something far darker? Tell me your theory below."
+            payoff = "Brazilian detectives are still haunted by the secret of why"
         elif any(k in topic_lower for k in ("dyatlov", "hiker", "blizzard", "mountain", "pass")):
-            hook = "Nine experienced hikers cut open their tent from the inside and fled into sub-zero blizzard conditions without boots."
+            hook = "Nine experienced hikers cut open their tent from the inside and fled into negative thirty degree snow."
             escalation = (
                 "Their bodies were discovered miles away with severe internal fractures matching a high-speed collision, yet zero external bruising. "
-                "Stranger still, several garments carried bizarre levels of radiation."
+                "Several of their winter garments carried bizarre levels of radiation."
             )
-            payoff = "Decades later, the case remains officially unsolved. What do you believe happened that night?"
+            payoff = "Decades later, forensic experts still cannot explain the terrifying reason why"
+        elif any(k in topic_lower for k in ("mona lisa", "heist", "louvre", "broom closet")):
+            hook = "The Mona Lisa was stolen from the Louvre by a handyman hiding inside a broom closet."
+            escalation = (
+                "He walked out the front doors with Leonardo's masterpiece hidden under his white workman's coat. "
+                "For over two years, police had zero leads while millions visited an empty wall."
+            )
+            payoff = "Art historians still marvel at the shocking story of how"
         elif any(k in topic_lower for k in ("ship", "mary celeste", "sea", "ocean", "crew")):
-            hook = "In 1872, the Mary Celeste was found drifting completely intact in the Atlantic Ocean, with its entire crew gone."
+            hook = "An intact ghost ship was found drifting across the Atlantic with its entire crew completely gone."
             escalation = (
                 "Six months of provisions remained untouched, personal valuables sat undisturbed, and the captain's logbook ended mid-sentence. "
-                "The lifeboat was missing, but there was no sign of foul play or stormy weather."
+                "Not a single trace of foul play was ever found."
             )
-            payoff = "Why would an experienced captain abandon a perfectly seaworthy ship? Drop your theory in the comments."
+            payoff = "Maritime historians are still terrified by the mystery of how"
         else:
-            hook = f"Some stories have no explanation, and the disappearance of {topic} is one of them."
+            hook = f"Forensic investigators are still baffled by the unexplained mystery of {topic}."
             escalation = (
-                "Investigators found personal belongings untouched, clocks stopped at the exact same minute, and trails that simply ceased to exist. "
+                "Personal belongings were left untouched, clocks stopped at the exact same minute, and physical trails simply ceased to exist. "
                 "Every official theory collapses when confronted with the actual forensic evidence."
             )
-            payoff = "Real mysteries leave no easy answers. What do you think really happened? Tell me below."
+            payoff = "Modern detectives are still searching for the truth of why"
 
         scenes = self._build_default_scenes(hook, escalation, payoff)
         return {
@@ -464,34 +473,47 @@ class StoryEngine:
         }
 
     def _build_default_scenes(self, hook: str, escalation: str, payoff: str) -> List[Dict[str, Any]]:
-        """Construct granular visual scene breakdown matching high-retention rapid pacing (2.5s-4.0s)."""
+        """Construct granular visual scene breakdown matching high-retention rapid pacing (2.5s-3.5s)."""
         scenes: List[Dict[str, Any]] = []
+        raw_chunks: List[Tuple[str, str, str]] = []
 
-        # Hook scene (instant impact)
-        scenes.append({
-            "narration_chunk": hook,
-            "visual_prompt": "Cinematic vertical 9:16 dark documentary forensic hook, chilling mystery atmosphere",
-            "target_duration_sec": 4.0,
-            "visual_mood": "crisis_opening",
-        })
+        # 1. Hook beat(s) - under 3.5s
+        hook_sentences = [s.strip() for s in re.split(r"[.!?]", hook) if s.strip()]
+        for hs in hook_sentences:
+            words = hs.split()
+            if len(words) > 10:
+                mid = len(words) // 2
+                raw_chunks.append((" ".join(words[:mid]), "crisis_opening", "⚠️ UNSOLVED ARCHIVE"))
+                raw_chunks.append((" ".join(words[mid:]), "crisis_opening", "⚠️ FORENSIC EVIDENCE"))
+            else:
+                raw_chunks.append((hs, "crisis_opening", "⚠️ FORENSIC FILE"))
 
-        # Split escalation into concise beats
-        sentences = [s.strip() for s in escalation.split(".") if s.strip()]
-        for idx, sentence in enumerate(sentences):
+        # 2. Escalation beats - rapid 2.5s-3.2s cuts
+        esc_sentences = [s.strip() for s in re.split(r"[.!?]", escalation) if s.strip()]
+        for idx, es in enumerate(esc_sentences):
+            words = es.split()
+            if len(words) > 11:
+                mid = len(words) // 2
+                raw_chunks.append((" ".join(words[:mid]), "tense_escalation", f"EVIDENCE BEAT 0{idx + 1}"))
+                raw_chunks.append((" ".join(words[mid:]), "tense_escalation", "CRITICAL DISCOVERY"))
+            else:
+                raw_chunks.append((es, "tense_escalation", f"EVIDENCE BEAT 0{idx + 1}"))
+
+        # 3. Payoff beat (Seamless Infinite Loop bridge)
+        payoff_clean = payoff.strip().rstrip(".")
+        raw_chunks.append((payoff_clean, "payoff_resolution", "THE UNBROKEN LOOP 🔄"))
+
+        for idx, (chunk_text, mood, badge) in enumerate(raw_chunks, start=1):
             scenes.append({
-                "narration_chunk": sentence + ".",
-                "visual_prompt": f"Investigative vertical 9:16 scene beat {idx + 1}, authentic forensic evidence and archival atmosphere",
-                "target_duration_sec": 3.2,
-                "visual_mood": "tense_escalation",
+                "scene_number": idx,
+                "narration_chunk": chunk_text + ("." if not chunk_text.endswith((".", "!", "?")) and idx < len(raw_chunks) else "..."),
+                "visual_prompt": f"Dark investigative vertical 9:16 documentary scene beat {idx}, high-contrast cinematic atmosphere, 8k",
+                "target_duration_sec": 3.0,
+                "visual_mood": mood,
+                "badge_text": badge,
+                "pexels_query": "dark mystery" if idx % 2 == 0 else "storm rain",
+                "ai_image_prompt": f"dark cinematic mystery, authentic historical investigation, photorealistic, 8k, vertical 9:16 composition",
             })
-
-        # Payoff scene
-        scenes.append({
-            "narration_chunk": payoff,
-            "visual_prompt": "Haunting vertical 9:16 dark mystery conclusion, lingering unanswered question",
-            "target_duration_sec": 4.5,
-            "visual_mood": "payoff_resolution",
-        })
 
         return scenes
 
@@ -534,12 +556,12 @@ class StoryEngine:
 
         critic_system = (
             "You are a ruthless YouTube Shorts Retention & Algorithm Director. "
-            "Your job is to critique and tighten a 30-second dark ranking script for MAXIMUM watch-time (100%+ APV).\n"
+            "Your job is to critique and tighten a 22-26 second dark mystery script for MAXIMUM watch-time (100%+ APV).\n"
             "Rules:\n"
             "1. 1.5-Second Shock Rule: Sentence 1 MUST start at 0.1s with extreme life-or-death stakes. ZERO greeting, ZERO preamble ('In today's video', 'Have you ever heard').\n"
-            "2. Countdown Progression: Build tension sequentially from dangerous (#3) to fatal (#2) to catastrophic (#1).\n"
-            "3. Comment Trap: The payoff MUST ask a divisive, high-stakes question forcing the viewer into the comments.\n"
-            "4. Word Count: Total words must be between 60 and 80 words (pacing 150-160 WPM for ~26-30s).\n"
+            "2. Countdown / Escalation Progression: Build tension rapidly with scene cuts every 2.5-3.5 seconds.\n"
+            "3. Infinite Seamless Loop (CRITICAL FOR >100% RETENTION): The payoff must NOT be a generic sign-off, comment question, or goodbye. The final sentence must syntactically and seamlessly loop directly back into the opening words of the hook.\n"
+            "4. Word Count: Total words must be between 55 and 70 words (pacing ~160 WPM for ~22-26s).\n"
             "Output strictly valid JSON with keys: retention_score (int 1-100), critique_feedback (string), hook_text, escalation_text, payoff_text."
         )
 
@@ -563,7 +585,23 @@ class StoryEngine:
                 story.estimated_duration_sec = round((story.word_count / 150.0) * 60.0, 1)
                 story.retention_score = int(parsed.get("retention_score", 95))
                 story.critique_feedback = parsed.get("critique_feedback", "Polished for high retention.")
-                logger.info(f"Script critique complete: Retention score {story.retention_score}/100. Pacing: ~{story.estimated_duration_sec}s.")
+                # Rebuild granular scenes to keep audio narration and visuals perfectly synchronized
+                new_scenes_data = self._build_default_scenes(story.hook_text, story.escalation_text, story.payoff_text)
+                story.scenes = [
+                    StoryScene(
+                        scene_number=idx + 1,
+                        narration_chunk=sc["narration_chunk"],
+                        visual_prompt=sc.get("visual_prompt", ""),
+                        target_duration_sec=float(sc.get("target_duration_sec", 3.0)),
+                        visual_mood=sc.get("visual_mood", "cinematic_dramatic"),
+                        badge_text=sc.get("badge_text", ""),
+                        pexels_query=sc.get("pexels_query", ""),
+                        ai_image_prompt=sc.get("ai_image_prompt", "") or sc.get("visual_prompt", ""),
+                        visual_source=sc.get("visual_source", "ai_flux"),
+                    )
+                    for idx, sc in enumerate(new_scenes_data)
+                ]
+                logger.info(f"Script critique complete: Retention score {story.retention_score}/100. Pacing: ~{story.estimated_duration_sec}s with {len(story.scenes)} scenes.")
         except Exception as e:
             logger.warning(f"Script critique refinement encountered issue ({e}). Keeping verified draft.")
             story.retention_score = 90

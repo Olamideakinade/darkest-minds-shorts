@@ -1,12 +1,10 @@
 name: Darkest Minds 101 — 24/7 Autopilot Shorts Generator
 
+# Automated schedule disabled per user instruction: 'dont let it upload any opther video again'
+# Can only be manually triggered via workflow_dispatch from GitHub Actions UI.
 on:
-  schedule:
-    # Runs twice daily at peak algorithmic audience windows:
-    # 11:00 AM UTC (12:00 PM WAT / CET lunch break)
-    # 5:00 PM UTC (6:00 PM WAT / CET evening commute)
-    - cron: '0 11,17 * * *'
   workflow_dispatch: # Allows 1-click manual trigger anytime from GitHub Web UI
+
 
 jobs:
   autopilot:
