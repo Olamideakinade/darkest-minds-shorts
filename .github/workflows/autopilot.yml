@@ -33,13 +33,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Restore YouTube Token from Secret
-        if: env.YOUTUBE_TOKEN_JSON != ''
+      - name: Restore YouTube Token & Credentials from Secret
         env:
           YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
+          CLIENT_SECRETS_JSON: ${{ secrets.CLIENT_SECRETS_JSON }}
         run: |
           mkdir -p data credentials
-          echo "$YOUTUBE_TOKEN_JSON" > data/youtube_token.json
+          if [ -n "$YOUTUBE_TOKEN_JSON" ]; then
+            echo "$YOUTUBE_TOKEN_JSON" > data/youtube_token.json
+          fi
+          if [ -n "$CLIENT_SECRETS_JSON" ]; then
+            echo "$CLIENT_SECRETS_JSON" > credentials/client_secrets.json
+          fi
 
       - name: Execute Autonomous Research & Production Cycle
         env:
@@ -47,13 +52,14 @@ jobs:
           TIMEZONE: Africa/Lagos
           MODEL_PROVIDER: gemini
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: gemini-flash-lite-latest
+          GEMINI_MODEL: gemini-2.0-flash
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           TTS_PROVIDER: edge-tts
           TTS_VOICE: en-US-ChristopherNeural
-          YOUTUBE_PUBLISH_MODE: autonomous
+          YOUTUBE_PUBLISH_MODE: autonomous_public
           YOUTUBE_DEFAULT_PRIVACY: public
           AUTO_PUBLISH_ENABLED: true
+          AUTO_CLEANUP_ARTIFACTS: true
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ALLOWED_USER_IDS: ${{ secrets.TELEGRAM_ALLOWED_USER_IDS }}
         run: |
