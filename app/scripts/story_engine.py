@@ -273,7 +273,7 @@ class StoryEngine:
                 "Over two hundred miles of unmapped tunnels holding the remains of six million human skeletons. "
                 "Get lost in the pitch black subterranean darkness, and no rescue team will ever find you."
             )
-            payoff = "Which of these three terrifying places would you pick? Tell me below and subscribe."
+            payoff = "And anyone foolish enough to test their luck soon discovers why"
             scenes = [
                 {
                     "scene_number": 1,
@@ -398,11 +398,11 @@ class StoryEngine:
                 },
                 {
                     "scene_number": 12,
-                    "narration_chunk": "Which of these three terrifying places would you pick? Tell me below and subscribe.",
+                    "narration_chunk": "And anyone foolish enough to test their luck soon discovers why...",
                     "visual_prompt": "Cinematic dark ocean surf against towering sea stacks, ominous twilight",
                     "target_duration_sec": 3.0,
                     "visual_mood": "payoff_resolution",
-                    "badge_text": "WHICH WOULD YOU PICK?",
+                    "badge_text": "THE UNBROKEN LOOP 🔄",
                     "visual_source": "pexels_video",
                     "pexels_query": "dark ocean rocks crashing waves",
                     "ai_image_prompt": "cinematic dark aerial ocean waves crashing against forbidding rocks, 8k photorealistic",
