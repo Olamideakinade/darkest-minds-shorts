@@ -6,8 +6,9 @@ import argparse
 import json
 from pathlib import Path
 import sys
-import time
-import uuid
+
+# Ensure project root is on PYTHONPATH
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config import config
 from app.database.db import db
