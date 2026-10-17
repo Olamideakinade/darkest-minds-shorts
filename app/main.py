@@ -480,7 +480,9 @@ def cmd_autonomous_cycle() -> int:
     if res.get("errors"):
         print(f"Errors Encountered: {', '.join(res.get('errors'))}")
     print("=" * 70)
-    return 0 if res.get("status") in ("SUCCESS", "PAUSED") else 1
+    if res.get("status") not in ("SUCCESS", "PAUSED") or bool(res.get("errors")):
+        return 1
+    return 0
 
 
 def cmd_daemon(args: argparse.Namespace) -> int:

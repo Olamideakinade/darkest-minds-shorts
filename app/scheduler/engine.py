@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 from app.analytics.learning_engine import LearningEngine
 from app.config import config
 from app.database.db import Database, db
-from app.database.models import SchedulerState, utc_now_iso
+from app.database.models import JobState, SchedulerState, utc_now_iso
 from app.intelligence.decision_engine import DecisionEngine
 from app.orchestrator import Orchestrator
 from app.research.service import ResearchService
@@ -139,6 +139,10 @@ class AutonomousScheduler:
                 results["processed_job_id"] = processed_job.id
                 results["processed_job_state"] = processed_job.state.value
                 state.last_production_at = utc_now_iso()
+                if processed_job.state in (JobState.RETRYING, JobState.FAILED, JobState.REJECTED):
+                    err_msg = f"Job {processed_job.id} failed production (state: {processed_job.state.value}, stage: {processed_job.current_stage}): {processed_job.error_message or 'QA or production failure'}"
+                    results["errors"].append(err_msg)
+                    logger.warning(err_msg)
 
             # 5. Learning & Strategy Feedback Check
             learning_result = self.learning_engine.evaluate_and_adapt()
@@ -146,10 +150,13 @@ class AutonomousScheduler:
             results["learning_updated"] = True
             results["learning_status"] = learning_result.get("status")
 
-            # Reset consecutive failures on success
-            state.consecutive_failures = 0
+            if results["errors"]:
+                state.consecutive_failures += 1
+                results["status"] = "PARTIAL_FAILURE"
+            else:
+                state.consecutive_failures = 0
+                results["status"] = "SUCCESS"
             self.db.update_scheduler_state(state)
-            results["status"] = "SUCCESS"
 
         except Exception as e:
             logger.exception(f"Scheduler cycle encountered unhandled error: {e}")

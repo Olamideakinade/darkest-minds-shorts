@@ -62,6 +62,7 @@ data/temp/
 *.png
 *.jpg
 *.jpeg
+!data/curated_assets/**
 *.srt
 *.ass
 scratch_*.json

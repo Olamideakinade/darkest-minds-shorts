@@ -138,7 +138,7 @@ class YouTubePublisher:
                 # Send Telegram notification with video link
                 try:
                     from app.telegram.notifier import notifier
-                    notifier.notify_video_published(title=title, url=video_url, privacy=privacy_status)
+                    notifier.notify_video_published(title=metadata["title"], url=video_url, privacy=privacy_status)
                 except Exception as ne:
                     logger.warning(f"Telegram notification note: {ne}")
 
