@@ -733,6 +733,9 @@ def main() -> None:
     research_parser.add_argument("--quota", action="store_true", help="Display YouTube API quota usage and guidance")
     research_parser.add_argument("--channels", action="store_true", help="List tracked competitor channels")
     research_parser.add_argument("--add-channel", nargs="+", help="Add a competitor channel: <id> [title]")
+    # Unlist Subcommand
+    unlist_parser = subparsers.add_parser("unlist", help="Change privacy of a YouTube video to unlisted")
+    unlist_parser.add_argument("video_id", type=str, help="YouTube Video ID to unlist")
     subparsers.add_parser("clean-artifacts", help="Delete temporary job files, raw video renders, and cache to free disk space")
 
     args = parser.parse_args()
@@ -800,6 +803,11 @@ def main() -> None:
         print(f"  • Disk Space Freed:    {res['freed_mb']:.1f} MB")
         print("=" * 60)
         sys.exit(0)
+    elif args.command == "unlist":
+        from app.youtube.channel_manager import channel_manager
+        success, msg, _ = channel_manager.unlist_video(args.video_id)
+        print(f"Unlist Result: {success} - {msg}")
+        sys.exit(0 if success else 1)
     elif args.command == "bot":
         from app.telegram.bot import TelegramControlRoom
         print("Telegram Control Room bot listening on @DarkestMindsbot... Press Ctrl+C to stop.")

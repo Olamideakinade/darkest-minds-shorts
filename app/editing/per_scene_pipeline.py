@@ -29,6 +29,7 @@ from app.editing.motion_graphics import MotionGraphicsEngine, VideoClipStream
 from app.narration.tts_service import TTSService, WordTimestamp
 from app.scripts.story_models import StoryScene
 from app.utils.logger import logger
+from app.visuals.moving_visual_engine import moving_visual_engine
 from app.visuals.pixabay_video_client import pixabay_video_client
 
 
@@ -59,9 +60,17 @@ class PerScenePipeline:
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Starting PerScenePipeline for job {job_id} ({len(scenes)} scenes)...")
-        pixabay_video_client.reset_session()
+        moving_visual_engine.reset_session()
+        # Clean any leftover files from prior runs to guarantee zero cross-topic cache leakage
+        for old_f in list(scenes_dir.glob("*")) + list((job_dir / "visuals").glob("*")):
+            try:
+                if old_f.is_file():
+                    old_f.unlink()
+            except Exception:
+                pass
 
         rendered_scene_paths: List[Path] = []
+        acquired_visual_paths: List[str] = []
         scene_durations: List[float] = []
         all_word_timestamps: List[Dict[str, Any]] = []
         global_time_cursor = 0.0
@@ -73,12 +82,13 @@ class PerScenePipeline:
             s_num = scene.scene_number
             logger.info(f"[Scene {s_num:02d}/{len(scenes):02d}] Processing: '{scene.narration_chunk[:45]}...'")
 
-            # 1. Synthesize & trim audio for this individual scene
+            # 1. Synthesize & trim audio for this individual scene (preserving full tail)
             audio_path, duration_sec, word_ts = self._produce_scene_audio(
                 job_id=job_id,
                 scene=scene,
                 scene_index=idx,
                 output_dir=scenes_dir,
+                total_scenes=len(scenes),
             )
             scene_durations.append(duration_sec)
 
@@ -92,13 +102,14 @@ class PerScenePipeline:
             start_scene_t = global_time_cursor
             global_time_cursor += duration_sec
 
-            # 2. Acquire visual asset (Pollinations Flux AI or generic video b-roll)
+            # 2. Acquire moving visual asset via 3-tier engine (Pexels -> Pixabay -> Zoompan AI)
             visual_path, is_video = self._acquire_scene_visual(
                 scene=scene,
                 scene_index=idx,
                 job_dir=job_dir,
                 duration_sec=duration_sec,
             )
+            acquired_visual_paths.append(str(visual_path))
 
             # 3. Render scene video with exact frame count matching duration_sec
             scene_merged_mp4 = scenes_dir / f"scene_{s_num:02d}_merged.mp4"
@@ -179,6 +190,7 @@ class PerScenePipeline:
             "total_duration": total_duration,
             "scenes_count": len(scenes),
             "scene_durations": scene_durations,
+            "visual_paths": acquired_visual_paths,
             "word_timestamps_count": len(all_word_timestamps),
         }
 
@@ -192,13 +204,13 @@ class PerScenePipeline:
         scene: StoryScene,
         scene_index: int,
         output_dir: Path,
+        total_scenes: int = 1,
     ) -> Tuple[Path, float, List[WordTimestamp]]:
-        """Synthesize TTS audio for a single sentence and trim dead silence."""
+        """Synthesize TTS audio for a single sentence without ever cutting off spoken words."""
         raw_audio_path = output_dir / f"scene_{scene.scene_number:02d}_raw.mp3"
-        trimmed_audio_path = output_dir / f"scene_{scene.scene_number:02d}_audio.mp3"
+        final_audio_path = output_dir / f"scene_{scene.scene_number:02d}_audio.mp3"
 
         # Edge-TTS with user-requested cinematic tuning: ChristopherNeural at +8% rate, -6Hz pitch
-        # (or ElevenLabs Adam if configured)
         res = self.tts.synthesize(
             job_id=f"{job_id}_s{scene.scene_number}",
             text=scene.narration_chunk,
@@ -210,50 +222,58 @@ class PerScenePipeline:
         if raw_dur <= 0.0:
             raw_dur = res.duration_sec
 
-        # Trim leading/trailing dead silence (>0.15s) using acoustic word boundaries
+        # Trim ONLY leading dead silence if >0.15s, NEVER cut off trailing speech!
+        trim_start = 0.0
         if res.word_timestamps:
             first_w = res.word_timestamps[0]
-            last_w = res.word_timestamps[-1]
+            if first_w.start_sec > 0.15:
+                trim_start = max(0.0, first_w.start_sec - 0.04)
 
-            # Leading silence: keep 40ms buffer before first word if leading dead silence > 0.12s
-            trim_start = max(0.0, first_w.start_sec - 0.04) if first_w.start_sec > 0.12 else 0.0
-
-            # Trailing silence: keep 80ms buffer after last word
-            trim_end = min(raw_dur, last_w.end_sec + 0.08)
-            trimmed_target_dur = max(0.3, trim_end - trim_start)
-
+        if trim_start > 0.0:
             trim_cmd = [
                 config.ffmpeg_path, "-y",
                 "-ss", f"{trim_start:.3f}",
-                "-to", f"{trim_end:.3f}",
                 "-i", str(raw_audio_path),
                 "-c:a", "libmp3lame", "-b:a", "192k",
-                str(trimmed_audio_path),
+                str(final_audio_path),
             ]
-            trim_res = subprocess.run(trim_cmd, capture_output=True, text=True)
-
-            dur = self._get_duration(trimmed_audio_path)
-            if dur <= 0.2:
-                dur = trimmed_target_dur
-                trimmed_audio_path = raw_audio_path
+            subprocess.run(trim_cmd, capture_output=True)
+            if not final_audio_path.exists() or final_audio_path.stat().st_size == 0:
+                final_audio_path = raw_audio_path
                 trim_start = 0.0
-
-            adjusted_words: List[WordTimestamp] = []
-            for w in res.word_timestamps:
-                adjusted_words.append(
-                    WordTimestamp(
-                        word=w.word,
-                        start_sec=max(0.0, round(w.start_sec - trim_start, 3)),
-                        end_sec=max(0.0, round(w.end_sec - trim_start, 3)),
-                        is_estimated=w.is_estimated,
-                    )
-                )
         else:
-            trimmed_audio_path = raw_audio_path
-            dur = raw_dur
-            adjusted_words = res.word_timestamps
+            final_audio_path = raw_audio_path
 
-        return trimmed_audio_path, dur, adjusted_words
+        # If this is the final scene (the infinite loop bridge), add +0.20s natural breathing room
+        if scene_index == total_scenes - 1:
+            padded_audio = output_dir / f"scene_{scene.scene_number:02d}_padded.mp3"
+            pad_cmd = [
+                config.ffmpeg_path, "-y",
+                "-i", str(final_audio_path),
+                "-af", "apad=pad_dur=0.20",
+                "-c:a", "libmp3lame", "-b:a", "192k",
+                str(padded_audio),
+            ]
+            subprocess.run(pad_cmd, capture_output=True)
+            if padded_audio.exists() and padded_audio.stat().st_size > 0:
+                final_audio_path = padded_audio
+
+        dur = self._get_duration(final_audio_path)
+        if dur <= 0.0:
+            dur = raw_dur
+
+        adjusted_words: List[WordTimestamp] = []
+        for w in res.word_timestamps:
+            adjusted_words.append(
+                WordTimestamp(
+                    word=w.word,
+                    start_sec=max(0.0, round(w.start_sec - trim_start, 3)),
+                    end_sec=max(0.0, round(w.end_sec - trim_start, 3)),
+                    is_estimated=w.is_estimated,
+                )
+            )
+
+        return final_audio_path, dur, adjusted_words
 
     # -------------------------------------------------------------------------
     # Step 2: Visual Asset Acquisition (Strict Hybrid Visual Router)
@@ -266,93 +286,19 @@ class PerScenePipeline:
         job_dir: Path,
         duration_sec: float,
     ) -> Tuple[Path, bool]:
-        """Fetch custom 9:16 dark photorealistic image via Pollinations Flux, or stock video b-roll."""
-        visual_source = getattr(scene, "visual_source", "ai_flux")
+        """Acquire guaranteed moving video via 3-Tier MovingVisualEngine (Pexels -> Pixabay -> Zoompan AI)."""
         visuals_dir = job_dir / "visuals"
-        visuals_dir.mkdir(parents=True, exist_ok=True)
+        query = scene.pexels_query or scene.visual_prompt or "dark mystery"
+        ai_prompt = scene.ai_image_prompt or scene.visual_prompt or "dark cinematic mystery, vertical 9:16, 8k"
 
-        # 1. Generic Stock Video: ONLY used for 100% generic nature/animal b-roll
-        if visual_source == "pexels_video":
-            query = scene.pexels_query or "storm sea"
-            # Strict negative keyword filtering
-            forbidden_terms = {"city", "resort", "cars", "tourists", "hotel", "happy"}
-            if not any(term in query.lower() for term in forbidden_terms):
-                video_clip = pixabay_video_client.search_and_download_video(query=query, target_duration=duration_sec)
-                if video_clip and video_clip.exists():
-                    return video_clip, True
-
-        # 2. Pixabay Photo API (High-Resolution authentic vertical photography)
-        photo_query = scene.pexels_query or scene.visual_prompt or "dark mystery"
-        if pixabay_video_client.api_key:
-            photo_clip = pixabay_video_client.search_and_download_photo(query=photo_query, orientation="vertical")
-            if photo_clip and photo_clip.exists() and photo_clip.stat().st_size > 5000:
-                return photo_clip, False
-
-        # 3. Pollinations AI Image Generation (Free Tier with model=sana / default fallback)
-        ai_path = visuals_dir / f"scene_{scene.scene_number:02d}_ai.jpg"
-        if ai_path.exists() and ai_path.stat().st_size > 10000:
-            return ai_path, False
-
-        prompt = scene.ai_image_prompt or scene.visual_prompt or "dark cinematic mystery background, horror documentary, 8k, photorealistic"
-        full_prompt = f"{prompt}, dark documentary style, cinematic lighting, highly detailed, photorealistic, vertical 9:16 composition, eerie atmosphere"
-
-        seed = random.randint(1000, 999999)
-        # Try free model=sana first, then default endpoint without model param
-        urls_to_try = [
-            f"https://image.pollinations.ai/prompt/{urllib.parse.quote(full_prompt)}?width=1080&height=1920&model=sana&nologo=true&seed={seed}",
-            f"https://image.pollinations.ai/prompt/{urllib.parse.quote(full_prompt)}?width=1080&height=1920&nologo=true&seed={seed}",
-        ]
-
-        for poll_url in urls_to_try:
-            try:
-                logger.info(f"Generating AI visual for scene {scene.scene_number} via Pollinations...")
-                req = urllib.request.Request(
-                    poll_url,
-                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-                )
-                with urllib.request.urlopen(req, timeout=12) as response, open(ai_path, "wb") as out_f:
-                    out_f.write(response.read())
-
-                if ai_path.exists() and ai_path.stat().st_size > 5000:
-                    return ai_path, False
-            except Exception as e:
-                logger.warning(f"Pollinations generation failed for scene {scene.scene_number}: {e}")
-
-        # 4. Fallback to local curated dark assets
-        fallback_dir = Path("data/curated_assets")
-        local_candidates = sorted(list(fallback_dir.glob("**/*.jpg")) + list(fallback_dir.glob("**/*.png")))
-        if local_candidates:
-            fallback = local_candidates[scene_index % len(local_candidates)]
-            logger.info(f"Using curated asset for scene {scene.scene_number}: {fallback.name}")
-            return fallback, False
-
-        # 5. Distinct Procedural Cinematic Fallback (Different tones, gradients, & labels per scene)
-        palette = [
-            ((12, 18, 30), (5, 8, 15)),
-            ((24, 15, 20), (10, 5, 8)),
-            ((15, 24, 20), (6, 12, 8)),
-            ((26, 20, 14), (12, 8, 4)),
-            ((18, 16, 28), (8, 6, 14)),
-        ]
-        top_color, bot_color = palette[scene_index % len(palette)]
-        fb_img = Image.new("RGB", (self.WIDTH, self.HEIGHT), top_color)
-        draw = ImageDraw.Draw(fb_img)
-
-        # Draw subtle vertical gradient
-        for y in range(self.HEIGHT):
-            ratio = y / self.HEIGHT
-            r = int(top_color[0] * (1 - ratio) + bot_color[0] * ratio)
-            g = int(top_color[1] * (1 - ratio) + bot_color[1] * ratio)
-            b = int(top_color[2] * (1 - ratio) + bot_color[2] * ratio)
-            draw.line([(0, y), (self.WIDTH, y)], fill=(r, g, b))
-
-        # Add subtle scene watermark/badge to guarantee pixel divergence across scenes
-        badge = scene.badge_text or f"ARCHIVE 0{scene.scene_number}"
-        draw.text((self.WIDTH // 2, self.HEIGHT // 2), badge, fill=(180, 180, 190), anchor="mm")
-
-        fb_path = visuals_dir / f"scene_{scene.scene_number:02d}_fb.png"
-        fb_img.save(fb_path)
-        return fb_path, False
+        moving_video = moving_visual_engine.acquire_scene_video(
+            query=query,
+            ai_prompt=ai_prompt,
+            duration_sec=duration_sec,
+            scene_index=scene_index,
+            output_dir=visuals_dir,
+        )
+        return moving_video, True
 
     # -------------------------------------------------------------------------
     # Step 3: Single Scene Video Rendering (4-Direction Motion + Overlays)
@@ -370,7 +316,7 @@ class PerScenePipeline:
         output_mp4: Path,
     ) -> None:
         """Render a single scene video of exact duration_sec and mux with scene audio."""
-        frames_count = max(1, int(round(duration_sec * self.FPS)))
+        frames_count = max(1, int(math.ceil(duration_sec * self.FPS)))
         logger.info(f"Rendering scene {scene.scene_number:02d}: {duration_sec:.2f}s ({frames_count} frames, is_video={is_video})...")
 
         # Step 1: Pre-render background visual clip with required motion, looping, and color grading
@@ -380,7 +326,6 @@ class PerScenePipeline:
 
         try:
             if is_video and visual_path.exists():
-                # Bug 2 fix: Put -stream_loop -1 BEFORE -i and -t AFTER -i so short clips loop seamlessly
                 cmd_bg = [
                     config.ffmpeg_path, "-y",
                     "-stream_loop", "-1",
@@ -394,7 +339,6 @@ class PerScenePipeline:
                     str(bg_clip_mp4),
                 ]
             else:
-                # Bug 1 fix: FFmpeg zoompan from min 1.08 to 1.28 (crops out bottom-right watermark)
                 vf_zoompan = (
                     f"scale=2160:3840,"
                     f"zoompan=z='min(max(zoom,1.08)+0.002,1.28)':d={frames_count}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps=30,"
@@ -424,7 +368,7 @@ class PerScenePipeline:
                 except Exception:
                     base_img = Image.new("RGB", (self.WIDTH, self.HEIGHT), (15, 18, 25))
 
-        # FFmpeg command: receives raw 1080x1920 RGB frames from pipe, muxes audio
+        # FFmpeg command: receives raw 1080x1920 RGB frames from pipe, muxes audio for EXACT duration
         cmd = [
             config.ffmpeg_path, "-y",
             "-f", "rawvideo",
@@ -439,7 +383,7 @@ class PerScenePipeline:
             "-pix_fmt", "yuv420p",
             "-c:a", "aac",
             "-b:a", "192k",
-            "-shortest",
+            "-t", f"{duration_sec:.3f}",
             str(output_mp4),
         ]
 
@@ -527,7 +471,10 @@ class PerScenePipeline:
 
     def _draw_countdown_badge(self, draw: ImageDraw.ImageDraw, text: str, y_pos: int = 220) -> None:
         """Draw gold-bordered dark frosted countdown badge box at the top of the frame."""
-        clean_text = text.upper().strip()
+        clean_text = re.sub(r'[^A-Za-z0-9#•\-\s]', '', text).upper().strip()
+        clean_text = re.sub(r'\s+', ' ', clean_text)
+        if not clean_text:
+            return
         font = self.mg.font_sub if hasattr(self.mg, "font_sub") else ImageFont.load_default()
 
         bbox = draw.textbbox((0, 0), clean_text, font=font)

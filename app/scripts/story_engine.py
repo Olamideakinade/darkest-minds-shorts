@@ -402,7 +402,7 @@ class StoryEngine:
                     "visual_prompt": "Cinematic dark ocean surf against towering sea stacks, ominous twilight",
                     "target_duration_sec": 3.0,
                     "visual_mood": "payoff_resolution",
-                    "badge_text": "THE UNBROKEN LOOP 🔄",
+                    "badge_text": "THE UNBROKEN LOOP",
                     "visual_source": "pexels_video",
                     "pexels_query": "dark ocean rocks crashing waves",
                     "ai_image_prompt": "cinematic dark aerial ocean waves crashing against forbidding rocks, 8k photorealistic",
@@ -483,10 +483,10 @@ class StoryEngine:
             words = hs.split()
             if len(words) > 10:
                 mid = len(words) // 2
-                raw_chunks.append((" ".join(words[:mid]), "crisis_opening", "⚠️ UNSOLVED ARCHIVE"))
-                raw_chunks.append((" ".join(words[mid:]), "crisis_opening", "⚠️ FORENSIC EVIDENCE"))
+                raw_chunks.append((" ".join(words[:mid]), "crisis_opening", "UNSOLVED ARCHIVE"))
+                raw_chunks.append((" ".join(words[mid:]), "crisis_opening", "FORENSIC EVIDENCE"))
             else:
-                raw_chunks.append((hs, "crisis_opening", "⚠️ FORENSIC FILE"))
+                raw_chunks.append((hs, "crisis_opening", "FORENSIC FILE"))
 
         # 2. Escalation beats - rapid 2.5s-3.2s cuts
         esc_sentences = [s.strip() for s in re.split(r"[.!?]", escalation) if s.strip()]
@@ -501,18 +501,32 @@ class StoryEngine:
 
         # 3. Payoff beat (Seamless Infinite Loop bridge)
         payoff_clean = payoff.strip().rstrip(".")
-        raw_chunks.append((payoff_clean, "payoff_resolution", "THE UNBROKEN LOOP 🔄"))
+        raw_chunks.append((payoff_clean, "payoff_resolution", "THE UNBROKEN LOOP"))
+
+        # Topic-tailored concrete 2-word nature & atmosphere queries
+        combined_text = f"{hook} {escalation} {payoff}".lower()
+        if any(k in combined_text for k in ("dyatlov", "hiker", "snow", "blizzard", "mountain", "tent")):
+            query_pool = ["snow blizzard", "camp tent snow", "snow footprints", "winter forest", "dark mountain", "flashlight dark"]
+        elif any(k in combined_text for k in ("snake", "island", "catacomb", "forbidden", "places")):
+            query_pool = ["storm sea", "dark forest", "snake jungle", "ocean island", "dark underground", "waves rocks"]
+        elif any(k in combined_text for k in ("ship", "celeste", "sea", "ocean", "water")):
+            query_pool = ["storm ocean", "fog sea", "ghost ship", "dark sea waves", "nautical compass", "dark horizon"]
+        else:
+            query_pool = ["dark forest", "night fog", "storm rain", "dark mountain", "shadow mystery", "flashlight dark"]
 
         for idx, (chunk_text, mood, badge) in enumerate(raw_chunks, start=1):
+            q = query_pool[(idx - 1) % len(query_pool)]
+            clean_badge = re.sub(r"[^A-Za-z0-9#•\-\s]", "", badge).upper().strip()
+            clean_badge = re.sub(r"\s+", " ", clean_badge)
             scenes.append({
                 "scene_number": idx,
                 "narration_chunk": chunk_text + ("." if not chunk_text.endswith((".", "!", "?")) and idx < len(raw_chunks) else "..."),
-                "visual_prompt": f"Dark investigative vertical 9:16 documentary scene beat {idx}, high-contrast cinematic atmosphere, 8k",
+                "visual_prompt": f"Dark investigative vertical 9:16 documentary scene beat {idx}, {q}, high-contrast cinematic atmosphere, 8k",
                 "target_duration_sec": 3.0,
                 "visual_mood": mood,
-                "badge_text": badge,
-                "pexels_query": "dark mystery" if idx % 2 == 0 else "storm rain",
-                "ai_image_prompt": f"dark cinematic mystery, authentic historical investigation, photorealistic, 8k, vertical 9:16 composition",
+                "badge_text": clean_badge,
+                "pexels_query": q,
+                "ai_image_prompt": f"dark cinematic mystery, {q}, authentic historical investigation, photorealistic, 8k, vertical 9:16 composition",
             })
 
         return scenes

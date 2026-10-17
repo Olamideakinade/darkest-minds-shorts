@@ -22,6 +22,12 @@ class StoryScene:
     ai_image_prompt: str = ""
     visual_source: str = "ai_flux"  # "ai_flux" or "pexels_video"
 
+    def __post_init__(self) -> None:
+        import re
+        if self.badge_text:
+            clean = re.sub(r'[^A-Za-z0-9#•\-\s]', '', self.badge_text).upper().strip()
+            self.badge_text = re.sub(r'\s+', ' ', clean)
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 

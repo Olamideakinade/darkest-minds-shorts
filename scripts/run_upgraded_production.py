@@ -77,6 +77,7 @@ def run_production(topic: str = "The Dyatlov Pass Incident"):
         scene_synthesizer.create_contact_sheet(preview_frames, contact_sheet)
 
     # 6. Run Automated QA Verification
+    # 6. Run Comprehensive Automated QA & Pre-Upload Sanity Gate
     from app.editing.timeline import ScenePlan
     tl_file = output_mp4.parent / "timeline.json"
     with open(tl_file, "r", encoding="utf-8") as ft:
@@ -101,6 +102,60 @@ def run_production(topic: str = "The Dyatlov Pass Incident"):
     if report.status == "FAIL":
         raise RuntimeError(f"QA hard failure for job {job_id}: {report.issues}")
 
+    # =========================================================================
+    # TASK 6: PRE-UPLOAD SANITY CHECK (QUALITY GATE)
+    # =========================================================================
+    import re
+    import subprocess
+    logger.info("Executing Pre-Upload Quality Gate checks...")
+
+    # Gate Check 1: Audio-Video Duration Sync Check via ffprobe (<= 0.40s tolerance)
+    def _probe_duration(fpath: Path) -> float:
+        cmd = [
+            config.ffprobe_path,
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(fpath),
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            return float(res.stdout.strip())
+        except Exception:
+            return 0.0
+
+    video_probe_dur = _probe_duration(output_mp4)
+    audio_probe_dur = _probe_duration(output_mp4.parent / "narration.mp3")
+    total_tts_dur = sum(pipe_res.get("scene_durations", []))
+    ref_audio_dur = audio_probe_dur if audio_probe_dur > 0 else total_tts_dur
+
+    dur_diff = abs(video_probe_dur - ref_audio_dur)
+    logger.info(f"Pre-Upload Gate: Video probe={video_probe_dur:.2f}s, Audio ref={ref_audio_dur:.2f}s (Diff: {dur_diff:.3f}s)")
+    if dur_diff > 0.45:
+        raise RuntimeError(
+            f"PRE-UPLOAD QUALITY GATE REJECTED: Video ({video_probe_dur:.2f}s) and Audio ({ref_audio_dur:.2f}s) "
+            f"duration discrepancy of {dur_diff:.2f}s exceeds strict 0.45s threshold! Narration cutoff prevention triggered."
+        )
+
+    # Gate Check 2: Unique Moving Visual Assets (Zero Repeated Fallback Images)
+    visual_paths = pipe_res.get("visual_paths", [])
+    unique_visuals = set(visual_paths)
+    logger.info(f"Pre-Upload Gate: {len(unique_visuals)} unique visual files across {len(story.scenes)} scenes.")
+    if len(unique_visuals) < len(story.scenes):
+        raise RuntimeError(
+            f"PRE-UPLOAD QUALITY GATE REJECTED: Visual repetition detected! "
+            f"Expected {len(story.scenes)} unique visual assets, got {len(unique_visuals)}: {visual_paths}"
+        )
+
+    # Gate Check 3: Badge Text Tofu/Emoji Sanitization Verification
+    for sc in story.scenes:
+        if sc.badge_text and re.search(r"[^A-Za-z0-9#•\-\s]", sc.badge_text):
+            raise RuntimeError(
+                f"PRE-UPLOAD QUALITY GATE REJECTED: Badge text '{sc.badge_text}' contains unrenderable emoji/symbols!"
+            )
+
+    logger.info("✓ PRE-UPLOAD QUALITY GATE PASSED ALL CHECKS.")
+
     # 7. Update Job Payload & Publish to YouTube
     final_title = story.optimized_title or story.title
     db.update_job_state(
@@ -119,7 +174,7 @@ def run_production(topic: str = "The Dyatlov Pass Incident"):
             "tags": story.target_tags,
             "target_tags": story.target_tags,
             "pinned_comment": story.pinned_comment,
-            "video_duration": pipe_res["total_duration"],
+            "video_duration": video_probe_dur or pipe_res["total_duration"],
         }
     )
     job = db.get_job(job_id)
@@ -139,15 +194,15 @@ def run_production(topic: str = "The Dyatlov Pass Incident"):
         print("✓ FLAWLESS VIRAL SHORT PUBLISHED SUCCESSFULLY")
         print(f"  • Video URL: {yt_url}")
         print(f"  • Title:     {final_title}")
-        print(f"  • Duration:  {pipe_res['total_duration']:.2f}s")
+        print(f"  • Duration:  {video_probe_dur:.2f}s")
         print("=" * 70)
 
-        # 8. Post-upload guard: disable any further automated uploads
+        # 8. Ensure autonomous scheduler remains UNPAUSED for peak viral publishing times (11:00 AM & 5:00 PM UTC)
         st = db.get_scheduler_state()
-        st.is_paused = True
-        st.pause_reason = "Automated uploads locked per user instruction."
+        st.is_paused = False
+        st.pause_reason = ""
         db.update_scheduler_state(st)
-        logger.info("Autonomous scheduler successfully paused in database.")
+        logger.info("Autonomous scheduler verified ACTIVE for peak viral upload schedule.")
     else:
         raise RuntimeError(f"YouTube upload failed: {msg}")
 

@@ -385,6 +385,11 @@ class OwnerChannelManager:
             logger.error(err_msg)
             return False, err_msg, {"error": str(e)}
 
+    def unlist_video(self, video_id: str) -> Tuple[bool, str, Dict[str, Any]]:
+        """Convenience method to immediately set any video privacy to 'unlisted'."""
+        return self.update_video_metadata(video_id=video_id, privacy_status="unlisted", explicit_confirm=True)
+
+
     def set_video_thumbnail(
         self,
         video_id: str,

@@ -50,6 +50,7 @@ class Config:
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     pixabay_api_key: str = os.getenv("PIXABAY_API_KEY", "")
+    pexels_api_key: str = os.getenv("PEXELS_API_KEY", "")
 
     # Neural Voiceover Engine (ElevenLabs, Google Gemini TTS, Fish Audio, or Edge-TTS)
     tts_provider: str = os.getenv("TTS_PROVIDER", "elevenlabs").lower()
