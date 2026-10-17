@@ -573,38 +573,41 @@ class StoryEngine:
 
     @staticmethod
     def format_viral_short_title(raw_title: str) -> str:
-        """Strip any existing survival tag or #shorts and format a clean title under 65 chars."""
+        """Format a clean, viral YouTube Shorts title under 65 characters without cutting off words."""
         if not raw_title:
-            return "Top 3 Forbidden Places (Survival Is 0%) ⚠️ #shorts"
+            return "Dark Unsolved Mysteries #Shorts"
 
-        suffix = " (Survival Is 0%) ⚠️ #shorts"
-        # Suffix is 28 chars. To ensure total length <= 64 chars, base phrase must be <= 36 chars.
-        max_base_len = 36
-
-        cleaned = raw_title
-        cleaned = re.sub(r"\(Survival[^\)]*\)", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"where survival is \d+%", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"where survival i\b", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"where survival\b", "", cleaned, flags=re.IGNORECASE)
+        cleaned = raw_title.strip()
         cleaned = re.sub(r"#\S+", "", cleaned)
-        cleaned = re.sub(r"[⚠️💀🕯️👇❌🚨]", "", cleaned)
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
-        # Ensure base title is a complete phrase under max_base_len characters
+        cleaned = re.sub(r"(\(Survival Is \d+%\)\s*)+", r"(Survival Is 0%) ", cleaned, flags=re.IGNORECASE).strip()
+
+        hanging_words = {"from", "where", "with", "of", "in", "to", "at", "by", "for", "and", "or", "the", "a", "an", "is", "that"}
+        words = cleaned.split()
+        while words and words[-1].lower() in hanging_words:
+            words.pop()
+        cleaned = " ".join(words)
+
+        target_tag = " #Shorts"
+        max_base_len = 65 - len(target_tag)
+
         if len(cleaned) > max_base_len:
             words = cleaned.split()
-            truncated = []
+            trimmed = []
             cur_len = 0
             for w in words:
-                word_len = len(w) + (1 if truncated else 0)
+                word_len = len(w) + (1 if trimmed else 0)
                 if cur_len + word_len <= max_base_len:
-                    truncated.append(w)
+                    trimmed.append(w)
                     cur_len += word_len
                 else:
                     break
-            cleaned = " ".join(truncated).strip() or cleaned[:max_base_len].strip()
+            while trimmed and trimmed[-1].lower() in hanging_words:
+                trimmed.pop()
+            cleaned = " ".join(trimmed)
 
-        return f"{cleaned}{suffix}"
+        return f"{cleaned}{target_tag}"
 
     def _engineer_viral_metadata(self, story: StoryScript, topic: str) -> None:
         """Upgrade 1: Reverse-Engineering Viral Competitor Metadata & Algorithmic Comment Trap.
@@ -615,24 +618,18 @@ class StoryEngine:
         - Target competitor search tag cluster.
         - Divisive Pinned Comment to multiply comment density and trigger background video loops.
         """
-        # Default high-CTR competitor metadata template
         default_title = self.format_viral_short_title(topic)
         default_desc = (
-            f"Which of these 3 forbidden places would you survive the longest in? Tell me below 👇\n\n"
-            f"#3 — Snake Island (Ilha da Queimada Grande, Brazil)\n"
-            f"#2 — North Sentinel Island (Indian Ocean)\n"
-            f"#1 — The Forbidden Parisian Catacombs (France)\n\n"
-            f"Darkest Minds 101 — Extreme world countdowns, forbidden zones, and terrifying mysteries.\n"
-            f"Subscribe for daily extreme rankings. 🕯️\n\n"
-            f"#Shorts #Rankings #Top3 #ForbiddenPlaces #MostDangerousPlaces #Survival #DarkestMinds #UnsolvedMysteries"
+            f"{topic}\n\n"
+            f"Darkest Minds 101 — Extreme true events, forbidden zones, and unsolved mysteries.\n"
+            f"Subscribe and enter the darker side of the unknown. 🕯️\n\n"
+            f"#Shorts #DarkestMinds #UnsolvedMysteries #DarkHistory #CreepyFacts #TrueMystery"
         )
-        default_tags = [
-            "forbidden places", "scariest places on earth", "places you cannot visit",
-            "snake island", "north sentinel island", "paris catacombs",
-            "most dangerous places in the world", "survival ranking", "ranking shorts",
-            "top 3", "darkest minds 101", "creepy places", "unsolved mysteries", "zero survival", "shorts"
-        ]
-        default_pinned = "99% of people couldn't survive 10 minutes in #2. Which of these three would you risk for $1,000,000? Let's settle this below 👇"
+        words_in_topic = [w.lower() for w in re.findall(r"\w+", topic) if len(w) > 3]
+        default_tags = list(dict.fromkeys(words_in_topic + [
+            "darkest minds 101", "unsolved mysteries", "dark history", "creepy facts", "strange history", "shorts"
+        ]))[:15]
+        default_pinned = f"What do you think really happened here? Let's settle this in the comments below 👇"
 
         if not self.llm.is_available() or getattr(self.llm, "is_fallback", False):
             story.optimized_title = default_title
