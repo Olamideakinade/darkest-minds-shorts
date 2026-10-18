@@ -55,7 +55,9 @@ jobs:
           MODEL_PROVIDER: gemini
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: gemini-2.0-flash
+          GEMINI_IMAGE_MODEL: gemini-2.5-flash-image
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           TTS_PROVIDER: edge-tts
           TTS_VOICE: en-US-ChristopherNeural
           YOUTUBE_PUBLISH_MODE: autonomous_public

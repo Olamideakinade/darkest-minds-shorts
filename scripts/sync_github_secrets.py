@@ -59,6 +59,7 @@ def sync_secrets(token: str):
         "YOUTUBE_TOKEN_JSON": youtube_token_str,
         "CLIENT_SECRETS_JSON": client_secrets_str,
         "PIXABAY_API_KEY": env_vars.get("PIXABAY_API_KEY", ""),
+        "PEXELS_API_KEY": env_vars.get("PEXELS_API_KEY", ""),
     }
 
     print("\n📦 Uploading encrypted repository secrets...")

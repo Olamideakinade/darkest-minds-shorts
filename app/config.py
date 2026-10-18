@@ -49,6 +49,8 @@ class Config:
     paid_apis_enabled: bool = os.getenv("PAID_APIS_ENABLED", "false").lower() in ("true", "1", "yes")
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    # Image model for scene visuals: "gemini-2.5-flash-image" (Nano Banana) or an "imagen-*" model
+    gemini_image_model: str = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
     pixabay_api_key: str = os.getenv("PIXABAY_API_KEY", "")
     pexels_api_key: str = os.getenv("PEXELS_API_KEY", "")
 

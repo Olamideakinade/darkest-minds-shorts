@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import time
+import urllib.error
+
 import hashlib
 import json
 import os
@@ -21,7 +25,7 @@ class MovingVisualEngine:
     """3-Tier Moving Visual Engine:
     - TIER 1: Pexels HD Portrait Video API (Moving MP4)
     - TIER 2: Pixabay HD Video API Backup (Moving MP4)
-    - TIER 3: Scene-Specific Animated AI Visual (Pollinations + FFmpeg Zoompan @ 30fps)
+    - TIER 3: Scene-Specific Animated AI Visual (Gemini API image, Pollinations backup + FFmpeg Zoompan @ 30fps)
     Guarantees every scene has real camera motion and zero static frames.
     """
 
@@ -32,11 +36,17 @@ class MovingVisualEngine:
         self.used_visual_paths: Set[str] = set()
         self.pexels_api_key = getattr(config, "pexels_api_key", "") or os.getenv("PEXELS_API_KEY", "")
         self.pixabay_api_key = getattr(config, "pixabay_api_key", "") or os.getenv("PIXABAY_API_KEY", "")
+        self.gemini_api_key = getattr(config, "gemini_api_key", "") or os.getenv("GEMINI_API_KEY", "")
+        self.gemini_image_model = (
+            getattr(config, "gemini_image_model", "") or os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
+        )
+        self._gemini_disabled = False  # set when quota is exhausted, to stop retrying this run
 
     def reset_session(self) -> None:
         """Clear used video tracking for a fresh run."""
         self.used_video_ids.clear()
         self.used_visual_paths.clear()
+        self._gemini_disabled = False
         logger.info("MovingVisualEngine session tracking reset.")
 
     def wipe_old_cache(self) -> int:
@@ -79,7 +89,7 @@ class MovingVisualEngine:
                 self.used_visual_paths.add(str(res))
                 return res
 
-        # Tier 3: Animated AI Visual via Pollinations + FFmpeg Zoompan
+        # Tier 3: Animated AI Visual via Gemini API (Pollinations backup) + FFmpeg Zoompan
         res = self._generate_animated_ai_visual(ai_prompt, duration_sec, scene_index, output_dir, scene_out)
         self.used_visual_paths.add(str(res))
         return res
@@ -200,6 +210,72 @@ class MovingVisualEngine:
 
         return None
 
+    def _generate_gemini_image(self, prompt: str, out_path: Path) -> bool:
+        """Generate a 9:16 image via the Gemini API. Supports Nano Banana (generateContent) and Imagen (predict)."""
+        if not self.gemini_api_key or self._gemini_disabled:
+            return False
+
+        model = self.gemini_image_model.strip()
+        base = f"https://generativelanguage.googleapis.com/v1beta/models/{model}"
+        if model.startswith("imagen"):
+            url = f"{base}:predict"
+            body = {"instances": [{"prompt": prompt}], "parameters": {"sampleCount": 1, "aspectRatio": "9:16"}}
+        else:
+            url = f"{base}:generateContent"
+            body = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": "9:16"}},
+            }
+
+        payload = json.dumps(body).encode("utf-8")
+        for attempt in range(2):
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={"Content-Type": "application/json", "x-goog-api-key": self.gemini_api_key},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=60.0) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                detail = e.read().decode("utf-8", errors="ignore")[:300]
+                if e.code == 429 and attempt == 0 and "PerDay" not in detail:
+                    logger.warning("Gemini image rate-limited (per-minute); retrying in 20s...")
+                    time.sleep(20)
+                    continue
+                if e.code in (429, 403, 404):
+                    # Daily quota exhausted, no access to model, or bad model name: stop trying this run
+                    self._gemini_disabled = True
+                logger.warning(f"Gemini image generation failed (HTTP {e.code}) for model '{model}': {detail}")
+                return False
+            except Exception as e:
+                logger.warning(f"Gemini image generation error: {e}")
+                return False
+
+            img_b64 = None
+            if model.startswith("imagen"):
+                preds = data.get("predictions") or []
+                img_b64 = preds[0].get("bytesBase64Encoded") if preds else None
+            else:
+                for cand in data.get("candidates") or []:
+                    for part in (cand.get("content") or {}).get("parts") or []:
+                        inline = part.get("inlineData") or part.get("inline_data")
+                        if inline and inline.get("data"):
+                            img_b64 = inline["data"]
+                            break
+                    if img_b64:
+                        break
+
+            if not img_b64:
+                logger.warning(f"Gemini returned no image (possibly safety-filtered). Response keys: {list(data.keys())}")
+                return False
+
+            out_path.write_bytes(base64.b64decode(img_b64))
+            return out_path.stat().st_size > 10000
+
+        return False
+
     def _generate_animated_ai_visual(
         self,
         ai_prompt: str,
@@ -217,17 +293,32 @@ class MovingVisualEngine:
         clean_prompt = ai_prompt.strip() or "dark cinematic mystery background, horror documentary, 8k, photorealistic"
         full_prompt = f"{clean_prompt}, dark documentary style, cinematic lighting, vertical 9:16, 8k photorealistic"
 
+        image_acquired = False
+        used_fallback = False
+
+        # Primary: Gemini API
+        gemini_img_path = output_dir / f"scene_{scene_index + 1:02d}_raw_ai.png"
+        if self.gemini_api_key and not self._gemini_disabled:
+            logger.info(f"Generating Tier 3 AI visual for scene {scene_index + 1} via Gemini ({self.gemini_image_model})...")
+            gemini_prompt = (
+                f"{full_prompt}. Vertical portrait composition, no text, no captions, no watermarks, no logos."
+            )
+            if self._generate_gemini_image(gemini_prompt, gemini_img_path):
+                raw_img_path = gemini_img_path
+                image_acquired = True
+                logger.info(f"Gemini image generated for scene {scene_index + 1}.")
+
+        # Backup: Pollinations
         seed = random.randint(1000, 999999)
         urls = [
             f"https://image.pollinations.ai/prompt/{urllib.parse.quote(full_prompt)}?width=1080&height=1920&model=sana&nologo=true&seed={seed}",
             f"https://image.pollinations.ai/prompt/{urllib.parse.quote(full_prompt)}?width=1080&height=1920&nologo=true&seed={seed}",
         ]
-        image_acquired = False
-        for u in urls:
+        for u in ([] if image_acquired else urls):
             try:
-                logger.info(f"Generating Tier 3 AI visual for scene {scene_index + 1} via Pollinations...")
+                logger.info(f"Generating Tier 3 AI visual for scene {scene_index + 1} via Pollinations (backup)...")
                 req = urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"})
-                with urllib.request.urlopen(req, timeout=12.0) as resp, open(raw_img_path, "wb") as f_out:
+                with urllib.request.urlopen(req, timeout=30.0) as resp, open(raw_img_path, "wb") as f_out:
                     f_out.write(resp.read())
                 if raw_img_path.exists() and raw_img_path.stat().st_size > 10000:
                     image_acquired = True
@@ -236,6 +327,8 @@ class MovingVisualEngine:
                 logger.warning(f"Pollinations URL failed: {e}")
 
         if not image_acquired:
+            used_fallback = True
+            logger.warning(f"All AI image sources failed for scene {scene_index + 1}; using procedural background.")
             # Fallback: create fresh procedural cinematic background for this scene
             from PIL import Image, ImageDraw
             palette = [
@@ -259,10 +352,13 @@ class MovingVisualEngine:
 
         # Convert image to animated moving 30fps .mp4 using FFmpeg zoompan starting at zoom 1.08
         frames = max(1, int(round(duration_sec * 30.0)))
+        # Skip the darkening grade on the procedural fallback: it is already very dark, and
+        # brightness=-0.06 can crush it below the QA black-frame threshold (blocking upload).
+        grade = "" if used_fallback else ",eq=contrast=1.15:brightness=-0.06:saturation=0.75,vignette=PI/4"
         vf = (
             f"scale=2160:3840,"
-            f"zoompan=z='min(max(zoom,1.08)+0.0025,1.30)':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps=30,"
-            f"eq=contrast=1.15:brightness=-0.06:saturation=0.75,vignette=PI/4"
+            f"zoompan=z='min(max(zoom,1.08)+0.0025,1.30)':d={frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps=30"
+            f"{grade}"
         )
         cmd = [
             config.ffmpeg_path, "-y",
